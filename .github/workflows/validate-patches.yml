@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.15.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
       - name: Fetch upstream
         run: git clone --depth 1 https://github.com/CherryHQ/cherry-studio.git upstream
       - name: Configure patch commit identity
