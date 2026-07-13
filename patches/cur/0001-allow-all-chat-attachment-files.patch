@@ -1,0 +1,254 @@
+From 7b85a85ec358b578ea7a94642df71dbc422370b2 Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Mon, 13 Jul 2026 21:00:25 +0000
+Subject: [PATCH] feat: allow all chat attachment files
+
+---
+ .../paste/__tests__/pasteHandling.test.ts     |  2 +-
+ .../composer/paste/pasteHandling.ts           | 45 +++++--------------
+ .../composer/paste/useFileDragDrop.ts         | 22 +--------
+ .../tools/components/AttachmentButton.tsx     | 27 ++---------
+ .../__tests__/AttachmentButton.test.tsx       | 25 +++++++++++
+ 5 files changed, 43 insertions(+), 78 deletions(-)
+
+diff --git a/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts b/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts
+index cca90ef..513181a 100644
+--- a/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts
++++ b/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts
+@@ -142,7 +142,7 @@ describe('pasteHandling', () => {
+     expect(files[0]).toMatchObject({
+       path: tempImageFile.path,
+       name: tempImageFile.name,
+-      origin_name: 'image',
++      origin_name: tempImageFile.origin_name,
+       ext: '.png',
+       type: FILE_TYPE.IMAGE
+     })
+diff --git a/src/renderer/components/composer/paste/pasteHandling.ts b/src/renderer/components/composer/paste/pasteHandling.ts
+index a488598..70c718c 100644
+--- a/src/renderer/components/composer/paste/pasteHandling.ts
++++ b/src/renderer/components/composer/paste/pasteHandling.ts
+@@ -1,7 +1,6 @@
+ import { loggerService } from '@logger'
+ import { toast } from '@renderer/services/toast'
+ import { COMPOSER_FILE_KIND, type PastedTextFileMetadata } from '@renderer/types/file'
+-import { getFileExtension, isSupportedFile, removeFileExtension } from '@renderer/utils/file'
+ import { type ComposerAttachment, toComposerAttachment } from '@renderer/utils/message/composerAttachment'
+ 
+ import { LONG_TEXT_PASTE_THRESHOLD } from '../composerPaste'
+@@ -30,7 +29,7 @@ let isInitialized = false
+  */
+ export const handlePaste = async (
+   event: ClipboardEvent,
+-  supportExts: string[],
++  _supportExts: string[],
+   setFiles: (updater: (prevFiles: ComposerAttachment[]) => ComposerAttachment[]) => void,
+   setText?: (text: string) => void,
+   text?: string,
+@@ -73,43 +72,21 @@ export const handlePaste = async (
+           // 使用新的API获取文件路径
+           const filePath = window.api.file.getPathForFile(file)
+ 
+-          // 如果没有路径，可能是剪贴板中的图像数据
++          // Store pathless clipboard files before attaching them to the composer.
+           if (!filePath) {
+-            // 图像生成也支持图像编辑
+-            if (file.type.startsWith('image/') && supportExts.includes(getFileExtension(file.name))) {
+-              const tempFilePath = await window.api.file.createTempFile(file.name)
+-              const arrayBuffer = await file.arrayBuffer()
+-              const uint8Array = new Uint8Array(arrayBuffer)
+-              await window.api.file.write(tempFilePath, uint8Array)
+-              const selectedFile = await window.api.file.get(tempFilePath)
+-              if (selectedFile) {
+-                setFiles((prevFiles) => [
+-                  ...prevFiles,
+-                  toComposerAttachment({
+-                    ...selectedFile,
+-                    origin_name: removeFileExtension(file.name)
+-                  })
+-                ])
+-                break
+-              }
+-            } else {
+-              if (t) {
+-                toast.info(t('chat.input.file_not_supported'))
+-              }
++            const tempFilePath = await window.api.file.createTempFile(file.name || 'attachment')
++            const arrayBuffer = await file.arrayBuffer()
++            await window.api.file.write(tempFilePath, new Uint8Array(arrayBuffer))
++            const selectedFile = await window.api.file.get(tempFilePath)
++            if (selectedFile) {
++              setFiles((prevFiles) => [...prevFiles, toComposerAttachment(selectedFile)])
+             }
+             continue
+           }
+ 
+-          // 有路径的情况
+-          if (await isSupportedFile(filePath, extensionSet)) {
+-            const selectedFile = await window.api.file.get(filePath)
+-            if (selectedFile) {
+-              setFiles((prevFiles) => [...prevFiles, toComposerAttachment(selectedFile)])
+-            }
+-          } else {
+-            if (t) {
+-              toast.info(t('chat.input.file_not_supported'))
+-            }
++          const selectedFile = await window.api.file.get(filePath)
++          if (selectedFile) {
++            setFiles((prevFiles) => [...prevFiles, toComposerAttachment(selectedFile)])
+           }
+         }
+       } catch (error) {
+diff --git a/src/renderer/components/composer/paste/useFileDragDrop.ts b/src/renderer/components/composer/paste/useFileDragDrop.ts
+index 07af059..a953747 100644
+--- a/src/renderer/components/composer/paste/useFileDragDrop.ts
++++ b/src/renderer/components/composer/paste/useFileDragDrop.ts
+@@ -1,8 +1,6 @@
+ import { loggerService } from '@logger'
+ import { useDrag } from '@renderer/hooks/useDrag'
+-import { toast } from '@renderer/services/toast'
+ import type { FileMetadata } from '@renderer/types/file'
+-import { filterSupportedFiles, isSupportedFile } from '@renderer/utils/file'
+ import { getFilesFromDropEvent, getTextFromDropEvent } from '@renderer/utils/input'
+ import { type ComposerAttachment, toComposerAttachments } from '@renderer/utils/message/composerAttachment'
+ import { isComposerFileTokenPathLike } from '@renderer/utils/message/composerFileTokenSource'
+@@ -114,18 +112,8 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
+         const { directories, files } = await splitDroppedFilesByKind(droppedFiles)
+         directories.forEach((directory) => options.onFolderPathDropped?.(directory.path))
+ 
+-        const supportedFiles = await filterSupportedFiles(files, options.supportedExts)
+-        if (supportedFiles.length > 0) {
+-          options.setFiles((prevFiles) => [...prevFiles, ...toComposerAttachments(supportedFiles)])
+-        }
+-
+-        // 如果有不支持的文件，显示提示
+-        if (files.length > 0 && supportedFiles.length !== files.length) {
+-          toast.info(
+-            options.t('chat.input.file_not_supported_count', {
+-              count: files.length - supportedFiles.length
+-            })
+-          )
++        if (files.length > 0) {
++          options.setFiles((prevFiles) => [...prevFiles, ...toComposerAttachments(files)])
+         }
+         return
+       }
+@@ -149,12 +137,6 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
+               return
+             }
+ 
+-            const extensionSet = new Set(options.supportedExts)
+-            if (!(await isSupportedFile(droppedPath, extensionSet))) {
+-              toast.info(options.t('chat.input.file_not_supported'))
+-              return
+-            }
+-
+             options.setFiles((prevFiles) => [...prevFiles, ...toComposerAttachments([selectedFile])])
+             return
+           } catch (error) {
+diff --git a/src/renderer/components/composer/tools/components/AttachmentButton.tsx b/src/renderer/components/composer/tools/components/AttachmentButton.tsx
+index be9fbd0..668c893 100644
+--- a/src/renderer/components/composer/tools/components/AttachmentButton.tsx
++++ b/src/renderer/components/composer/tools/components/AttachmentButton.tsx
+@@ -1,7 +1,6 @@
+ import { getQuickPanelSearchAliases } from '@renderer/components/composer/quickPanel'
+ import type { ToolLauncherApi } from '@renderer/components/composer/tools/types'
+ import { toast } from '@renderer/services/toast'
+-import { filterSupportedFiles } from '@renderer/utils/file'
+ import { type ComposerAttachment, toComposerAttachments } from '@renderer/utils/message/composerAttachment'
+ import { Paperclip } from 'lucide-react'
+ import type { Dispatch, FC, SetStateAction } from 'react'
+@@ -17,7 +16,7 @@ interface Props {
+   disabled?: boolean
+ }
+ 
+-const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions, setFiles, disabled }: Props) => {
++const useAttachmentToolController = ({ launcher, couldAddImageFile, setFiles, disabled }: Props) => {
+   const { t } = useTranslation()
+   const [selecting, setSelecting] = useState<boolean>(false)
+ 
+@@ -26,16 +25,13 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
+       if (selecting) {
+         return
+       }
+-      // when the number of extensions is greater than 20, use *.* to avoid selecting window lag
+-      const useAllFiles = extensions.length > 20
+-
+       setSelecting(true)
+       const _files = await window.api.file.select({
+         properties: ['openFile', 'multiSelections'],
+         filters: [
+           {
+             name: 'Files',
+-            extensions: useAllFiles ? ['*'] : extensions.map((i) => i.replace('.', ''))
++            extensions: ['*']
+           }
+         ]
+       })
+@@ -43,25 +39,10 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
+       window.requestAnimationFrame(() => restoreFocus?.())
+ 
+       if (_files) {
+-        if (!useAllFiles) {
+-          setFiles((currentFiles) => [...currentFiles, ...toComposerAttachments(_files)])
+-          return
+-        }
+-        const supportedFiles = await filterSupportedFiles(_files, extensions)
+-        if (supportedFiles.length > 0) {
+-          setFiles((currentFiles) => [...currentFiles, ...toComposerAttachments(supportedFiles)])
+-        }
+-
+-        if (supportedFiles.length !== _files.length) {
+-          toast.info(
+-            t('chat.input.file_not_supported_count', {
+-              count: _files.length - supportedFiles.length
+-            })
+-          )
+-        }
++        setFiles((currentFiles) => [...currentFiles, ...toComposerAttachments(_files)])
+       }
+     },
+-    [extensions, selecting, setFiles, t]
++    [selecting, setFiles]
+   )
+ 
+   useEffect(() => {
+diff --git a/src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx b/src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx
+index 3471d27..1ae06b7 100644
+--- a/src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx
++++ b/src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx
+@@ -174,6 +174,31 @@ describe('AttachmentToolRuntime', () => {
+     ])
+   })
+ 
++  it('opens the chat attachment picker for every file type', async () => {
++    const launcher = createLauncherApi()
++
++    render(
++      <AttachmentToolRuntime
++        launcher={launcher}
++        couldAddImageFile
++        extensions={['.txt']}
++        files={[]}
++        setFiles={vi.fn()}
++      />
++    )
++
++    await waitFor(() => expect(launcher.registerLaunchers).toHaveBeenCalled())
++
++    const [attachmentLauncher] = vi.mocked(launcher.registerLaunchers).mock.calls[0][0]
++    await act(async () => {
++      attachmentLauncher.action?.({ source: 'popover', quickPanel: {} as never })
++    })
++
++    expect(window.api.file.select).toHaveBeenCalledWith(
++      expect.objectContaining({ filters: [{ name: 'Files', extensions: ['*'] }] })
++    )
++  })
++
+   it('restores composer focus after the file picker closes', async () => {
+     const launcher = createLauncherApi()
+     const inputAdapter = {
+-- 
+2.43.0
+

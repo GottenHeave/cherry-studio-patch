@@ -1,0 +1,20 @@
+name: Patch validation
+
+on:
+  push:
+    branches: [patchset]
+  pull_request:
+    branches: [patchset]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch upstream
+        run: git clone --depth 1 https://github.com/CherryHQ/cherry-studio.git upstream
+      - name: Apply patches
+        run: scripts/apply-patches.sh upstream
+      - name: Verify chat attachment test
+        run: pnpm --dir upstream install --frozen-lockfile && pnpm --dir upstream exec vitest run src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx --project renderer
