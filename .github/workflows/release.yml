@@ -60,7 +60,7 @@ jobs:
           - runner: macos-14
             script: build:mac
             artifact: macos
-          - runner: windows-2025
+          - runner: windows-2022
             script: build:win
             artifact: windows
           - runner: ubuntu-24.04
