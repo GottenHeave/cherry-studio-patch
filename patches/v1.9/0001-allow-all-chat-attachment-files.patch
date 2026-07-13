@@ -1,13 +1,13 @@
-From aa67b8b036161d7a5e6553174c7159934f466d19 Mon Sep 17 00:00:00 2001
+From 35c122d8ff0a7a9198c35ba9a307ba6f0cd66a66 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Mon, 13 Jul 2026 21:12:01 +0000
 Subject: [PATCH] feat: allow all chat attachment files
 
 ---
- .../home/Inputbar/hooks/useFileDragDrop.ts    | 15 +-------
- .../tools/components/AttachmentButton.tsx     | 26 ++-----------
- src/renderer/src/services/PasteService.ts     | 38 +++++--------------
- 3 files changed, 16 insertions(+), 63 deletions(-)
+ .../home/Inputbar/hooks/useFileDragDrop.ts    | 15 +------
+ .../tools/components/AttachmentButton.tsx     | 26 ++----------
+ src/renderer/src/services/PasteService.ts     | 40 +++++--------------
+ 3 files changed, 17 insertions(+), 64 deletions(-)
 
 diff --git a/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts b/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
 index a50e715..e25affe 100644
@@ -100,7 +100,7 @@ index 1cc7458..c11835b 100644
    const openKnowledgeFileList = useCallback(
      (base: KnowledgeBase) => {
 diff --git a/src/renderer/src/services/PasteService.ts b/src/renderer/src/services/PasteService.ts
-index d12a736..d9fc857 100644
+index d12a736..93ba0db 100644
 --- a/src/renderer/src/services/PasteService.ts
 +++ b/src/renderer/src/services/PasteService.ts
 @@ -1,6 +1,5 @@
@@ -110,6 +110,15 @@ index d12a736..d9fc857 100644
  
  const logger = loggerService.withContext('PasteService')
  
+@@ -26,7 +25,7 @@ let isInitialized = false
+  */
+ export const handlePaste = async (
+   event: ClipboardEvent,
+-  supportExts: string[],
++  _supportExts: string[],
+   setFiles: (updater: (prevFiles: FileMetadata[]) => FileMetadata[]) => void,
+   setText?: (text: string) => void,
+   pasteLongTextAsFile?: boolean,
 @@ -60,43 +59,26 @@ export const handlePaste = async (
      // 2. 文件/图片粘贴（仅在无文本时处理）
      if (event.clipboardData?.files && event.clipboardData.files.length > 0) {

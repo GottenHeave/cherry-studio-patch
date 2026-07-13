@@ -1,15 +1,15 @@
-From 7b85a85ec358b578ea7a94642df71dbc422370b2 Mon Sep 17 00:00:00 2001
+From 4d063eb8c2c910b5cb2fa7c2433dd71f008c2b7e Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Mon, 13 Jul 2026 21:00:25 +0000
 Subject: [PATCH] feat: allow all chat attachment files
 
 ---
  .../paste/__tests__/pasteHandling.test.ts     |  2 +-
- .../composer/paste/pasteHandling.ts           | 45 +++++--------------
- .../composer/paste/useFileDragDrop.ts         | 22 +--------
- .../tools/components/AttachmentButton.tsx     | 27 ++---------
- .../__tests__/AttachmentButton.test.tsx       | 25 +++++++++++
- 5 files changed, 43 insertions(+), 78 deletions(-)
+ .../composer/paste/pasteHandling.ts           | 46 +++++--------------
+ .../composer/paste/useFileDragDrop.ts         | 23 ++--------
+ .../tools/components/AttachmentButton.tsx     | 28 ++---------
+ .../__tests__/AttachmentButton.test.tsx       | 25 ++++++++++
+ 5 files changed, 44 insertions(+), 80 deletions(-)
 
 diff --git a/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts b/src/renderer/components/composer/paste/__tests__/pasteHandling.test.ts
 index cca90ef..513181a 100644
@@ -25,7 +25,7 @@ index cca90ef..513181a 100644
        type: FILE_TYPE.IMAGE
      })
 diff --git a/src/renderer/components/composer/paste/pasteHandling.ts b/src/renderer/components/composer/paste/pasteHandling.ts
-index a488598..70c718c 100644
+index a488598..56be83c 100644
 --- a/src/renderer/components/composer/paste/pasteHandling.ts
 +++ b/src/renderer/components/composer/paste/pasteHandling.ts
 @@ -1,7 +1,6 @@
@@ -45,7 +45,13 @@ index a488598..70c718c 100644
    setFiles: (updater: (prevFiles: ComposerAttachment[]) => ComposerAttachment[]) => void,
    setText?: (text: string) => void,
    text?: string,
-@@ -73,43 +72,21 @@ export const handlePaste = async (
+@@ -67,49 +66,26 @@ export const handlePaste = async (
+     // 2. 文件/图片粘贴（仅在无文本时处理）
+     if (event.clipboardData?.files && event.clipboardData.files.length > 0) {
+       event.preventDefault()
+-      const extensionSet = new Set(supportExts)
+       try {
+         for (const file of event.clipboardData.files) {
            // 使用新的API获取文件路径
            const filePath = window.api.file.getPathForFile(file)
  
@@ -100,19 +106,20 @@ index a488598..70c718c 100644
          }
        } catch (error) {
 diff --git a/src/renderer/components/composer/paste/useFileDragDrop.ts b/src/renderer/components/composer/paste/useFileDragDrop.ts
-index 07af059..a953747 100644
+index 07af059..a580339 100644
 --- a/src/renderer/components/composer/paste/useFileDragDrop.ts
 +++ b/src/renderer/components/composer/paste/useFileDragDrop.ts
-@@ -1,8 +1,6 @@
+@@ -1,8 +1,7 @@
  import { loggerService } from '@logger'
- import { useDrag } from '@renderer/hooks/useDrag'
--import { toast } from '@renderer/services/toast'
+-import { useDrag } from '@renderer/hooks/useDrag'
+ import { toast } from '@renderer/services/toast'
++import { useDrag } from '@renderer/hooks/useDrag'
  import type { FileMetadata } from '@renderer/types/file'
 -import { filterSupportedFiles, isSupportedFile } from '@renderer/utils/file'
  import { getFilesFromDropEvent, getTextFromDropEvent } from '@renderer/utils/input'
  import { type ComposerAttachment, toComposerAttachments } from '@renderer/utils/message/composerAttachment'
  import { isComposerFileTokenPathLike } from '@renderer/utils/message/composerFileTokenSource'
-@@ -114,18 +112,8 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
+@@ -114,18 +113,8 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
          const { directories, files } = await splitDroppedFilesByKind(droppedFiles)
          directories.forEach((directory) => options.onFolderPathDropped?.(directory.path))
  
@@ -133,7 +140,7 @@ index 07af059..a953747 100644
          }
          return
        }
-@@ -149,12 +137,6 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
+@@ -149,12 +138,6 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
                return
              }
  
@@ -147,18 +154,18 @@ index 07af059..a953747 100644
              return
            } catch (error) {
 diff --git a/src/renderer/components/composer/tools/components/AttachmentButton.tsx b/src/renderer/components/composer/tools/components/AttachmentButton.tsx
-index be9fbd0..668c893 100644
+index be9fbd0..4c2d9f7 100644
 --- a/src/renderer/components/composer/tools/components/AttachmentButton.tsx
 +++ b/src/renderer/components/composer/tools/components/AttachmentButton.tsx
-@@ -1,7 +1,6 @@
+@@ -1,7 +1,5 @@
  import { getQuickPanelSearchAliases } from '@renderer/components/composer/quickPanel'
  import type { ToolLauncherApi } from '@renderer/components/composer/tools/types'
- import { toast } from '@renderer/services/toast'
+-import { toast } from '@renderer/services/toast'
 -import { filterSupportedFiles } from '@renderer/utils/file'
  import { type ComposerAttachment, toComposerAttachments } from '@renderer/utils/message/composerAttachment'
  import { Paperclip } from 'lucide-react'
  import type { Dispatch, FC, SetStateAction } from 'react'
-@@ -17,7 +16,7 @@ interface Props {
+@@ -17,7 +15,7 @@ interface Props {
    disabled?: boolean
  }
  
@@ -167,7 +174,7 @@ index be9fbd0..668c893 100644
    const { t } = useTranslation()
    const [selecting, setSelecting] = useState<boolean>(false)
  
-@@ -26,16 +25,13 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
+@@ -26,16 +24,13 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
        if (selecting) {
          return
        }
@@ -185,7 +192,7 @@ index be9fbd0..668c893 100644
            }
          ]
        })
-@@ -43,25 +39,10 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
+@@ -43,25 +38,10 @@ const useAttachmentToolController = ({ launcher, couldAddImageFile, extensions,
        window.requestAnimationFrame(() => restoreFocus?.())
  
        if (_files) {
