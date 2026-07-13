@@ -96,7 +96,7 @@ jobs:
         run: node -e "const fs=require('fs');const p='upstream/package.json';const j=require('./'+p);const n=process.env.TAG.match(/-patch\\.(\\d+)$/)[1];j.version=process.env.VERSION+'-patch.'+n;fs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n')"
       - name: Install Linux native build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libxkbfile-dev
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxkbfile-dev libxtst-dev
       - name: Install dependencies
         shell: bash
         run: pnpm --dir upstream install --frozen-lockfile
