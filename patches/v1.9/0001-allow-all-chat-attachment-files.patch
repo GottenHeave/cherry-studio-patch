@@ -1,0 +1,169 @@
+From aa67b8b036161d7a5e6553174c7159934f466d19 Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Mon, 13 Jul 2026 21:12:01 +0000
+Subject: [PATCH] feat: allow all chat attachment files
+
+---
+ .../home/Inputbar/hooks/useFileDragDrop.ts    | 15 +-------
+ .../tools/components/AttachmentButton.tsx     | 26 ++-----------
+ src/renderer/src/services/PasteService.ts     | 38 +++++--------------
+ 3 files changed, 16 insertions(+), 63 deletions(-)
+
+diff --git a/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts b/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
+index a50e715..e25affe 100644
+--- a/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
++++ b/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
+@@ -1,7 +1,6 @@
+ import { loggerService } from '@logger'
+ import { useDrag } from '@renderer/hooks/useDrag'
+ import type { FileMetadata } from '@renderer/types'
+-import { filterSupportedFiles } from '@renderer/utils'
+ import { getFilesFromDropEvent, getTextFromDropEvent } from '@renderer/utils/input'
+ import type { TFunction } from 'i18next'
+ import { useCallback } from 'react'
+@@ -65,18 +64,8 @@ export function useFileDragDrop(options: UseFileDragDropOptions) {
+       })
+ 
+       if (droppedFiles) {
+-        const supportedFiles = await filterSupportedFiles(droppedFiles, options.supportedExts)
+-        if (supportedFiles.length > 0) {
+-          options.setFiles((prevFiles) => [...prevFiles, ...supportedFiles])
+-        }
+-
+-        // 如果有不支持的文件，显示提示
+-        if (droppedFiles.length > 0 && supportedFiles.length !== droppedFiles.length) {
+-          window.toast.info(
+-            options.t('chat.input.file_not_supported_count', {
+-              count: droppedFiles.length - supportedFiles.length
+-            })
+-          )
++        if (droppedFiles.length > 0) {
++          options.setFiles((prevFiles) => [...prevFiles, ...droppedFiles])
+         }
+       }
+     },
+diff --git a/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx b/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
+index 1cc7458..c11835b 100644
+--- a/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
++++ b/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
+@@ -3,7 +3,7 @@ import { QuickPanelReservedSymbol, useQuickPanel } from '@renderer/components/Qu
+ import { useKnowledgeBases } from '@renderer/hooks/useKnowledge'
+ import type { ToolQuickPanelApi } from '@renderer/pages/home/Inputbar/types'
+ import type { FileMetadata, KnowledgeBase, KnowledgeItem } from '@renderer/types'
+-import { filterSupportedFiles, formatFileSize } from '@renderer/utils/file'
++import { formatFileSize } from '@renderer/utils/file'
+ import { Tooltip } from 'antd'
+ import dayjs from 'dayjs'
+ import { FileSearch, FileText, Paperclip, Upload } from 'lucide-react'
+@@ -30,40 +30,22 @@ const AttachmentButton: FC<Props> = ({ quickPanel, couldAddImageFile, extensions
+     if (selecting) {
+       return
+     }
+-    // when the number of extensions is greater than 20, use *.* to avoid selecting window lag
+-    const useAllFiles = extensions.length > 20
+-
+     setSelecting(true)
+     const _files = await window.api.file.select({
+       properties: ['openFile', 'multiSelections'],
+       filters: [
+         {
+           name: 'Files',
+-          extensions: useAllFiles ? ['*'] : extensions.map((i) => i.replace('.', ''))
++          extensions: ['*']
+         }
+       ]
+     })
+     setSelecting(false)
+ 
+     if (_files) {
+-      if (!useAllFiles) {
+-        setFiles([...files, ..._files])
+-        return
+-      }
+-      const supportedFiles = await filterSupportedFiles(_files, extensions)
+-      if (supportedFiles.length > 0) {
+-        setFiles([...files, ...supportedFiles])
+-      }
+-
+-      if (supportedFiles.length !== _files.length) {
+-        window.toast.info(
+-          t('chat.input.file_not_supported_count', {
+-            count: _files.length - supportedFiles.length
+-          })
+-        )
+-      }
++      setFiles([...files, ..._files])
+     }
+-  }, [extensions, files, selecting, setFiles, t])
++  }, [files, selecting, setFiles])
+ 
+   const openKnowledgeFileList = useCallback(
+     (base: KnowledgeBase) => {
+diff --git a/src/renderer/src/services/PasteService.ts b/src/renderer/src/services/PasteService.ts
+index d12a736..d9fc857 100644
+--- a/src/renderer/src/services/PasteService.ts
++++ b/src/renderer/src/services/PasteService.ts
+@@ -1,6 +1,5 @@
+ import { loggerService } from '@logger'
+ import type { FileMetadata } from '@renderer/types'
+-import { getFileExtension, isSupportedFile } from '@renderer/utils'
+ 
+ const logger = loggerService.withContext('PasteService')
+ 
+@@ -60,43 +59,26 @@ export const handlePaste = async (
+     // 2. 文件/图片粘贴（仅在无文本时处理）
+     if (event.clipboardData?.files && event.clipboardData.files.length > 0) {
+       event.preventDefault()
+-      const extensionSet = new Set(supportExts)
+       try {
+         for (const file of event.clipboardData.files) {
+           // 使用新的API获取文件路径
+           const filePath = window.api.file.getPathForFile(file)
+ 
+-          // 如果没有路径，可能是剪贴板中的图像数据
++          // Store pathless clipboard files before attaching them to the chat.
+           if (!filePath) {
+-            // 图像生成也支持图像编辑
+-            if (file.type.startsWith('image/') && supportExts.includes(getFileExtension(file.name))) {
+-              const tempFilePath = await window.api.file.createTempFile(file.name)
+-              const arrayBuffer = await file.arrayBuffer()
+-              const uint8Array = new Uint8Array(arrayBuffer)
+-              await window.api.file.write(tempFilePath, uint8Array)
+-              const selectedFile = await window.api.file.get(tempFilePath)
+-              if (selectedFile) {
+-                setFiles((prevFiles) => [...prevFiles, selectedFile])
+-                break
+-              }
+-            } else {
+-              if (t) {
+-                window.toast.info(t('chat.input.file_not_supported'))
+-              }
++            const tempFilePath = await window.api.file.createTempFile(file.name || 'attachment')
++            const arrayBuffer = await file.arrayBuffer()
++            await window.api.file.write(tempFilePath, new Uint8Array(arrayBuffer))
++            const selectedFile = await window.api.file.get(tempFilePath)
++            if (selectedFile) {
++              setFiles((prevFiles) => [...prevFiles, selectedFile])
+             }
+             continue
+           }
+ 
+-          // 有路径的情况
+-          if (await isSupportedFile(filePath, extensionSet)) {
+-            const selectedFile = await window.api.file.get(filePath)
+-            if (selectedFile) {
+-              setFiles((prevFiles) => [...prevFiles, selectedFile])
+-            }
+-          } else {
+-            if (t) {
+-              window.toast.info(t('chat.input.file_not_supported'))
+-            }
++          const selectedFile = await window.api.file.get(filePath)
++          if (selectedFile) {
++            setFiles((prevFiles) => [...prevFiles, selectedFile])
+           }
+         }
+       } catch (error) {
+-- 
+2.43.0
+

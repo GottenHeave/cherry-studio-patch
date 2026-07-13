@@ -1,0 +1,120 @@
+name: Release patched Cherry Studio
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Upstream baseline to release
+        required: true
+        type: choice
+        options:
+          - current
+          - v1.9.12
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_ref: ${{ steps.target.outputs.upstream_ref }}
+      patchset: ${{ steps.target.outputs.patchset }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: patch
+      - id: target
+        shell: bash
+        run: |
+          if [ "${{ inputs.baseline }}" = "current" ]; then
+            echo "upstream_ref=main" >> "$GITHUB_OUTPUT"
+            echo "patchset=current" >> "$GITHUB_OUTPUT"
+          else
+            echo "upstream_ref=v1.9.12" >> "$GITHUB_OUTPUT"
+            echo "patchset=v1.9" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Fetch upstream
+        run: git clone --depth 1 --branch "${{ steps.target.outputs.upstream_ref }}" https://github.com/CherryHQ/cherry-studio.git upstream
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./upstream/package.json').version")"
+          prefix="v${version}-patch."
+          last="$(gh api "repos/${{ github.repository }}/git/matching-refs/tags/${prefix}" --jq '.[].ref' 2>/dev/null | sed "s#refs/tags/${prefix}##" | sort -n | tail -1)"
+          next="$(( ${last:-0} + 1 ))"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=${prefix}${next}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            script: build:mac
+            artifact: macos
+          - runner: windows-2025
+            script: build:win
+            artifact: windows
+          - runner: ubuntu-24.04
+            script: build:linux
+            artifact: linux
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: patch
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.15.0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+      - name: Fetch upstream
+        shell: bash
+        run: git clone --depth 1 --branch "${{ needs.prepare.outputs.upstream_ref }}" https://github.com/CherryHQ/cherry-studio.git upstream
+      - name: Configure patch commit identity
+        shell: bash
+        run: |
+          git config --global user.name "cherry-studio-patch automation"
+          git config --global user.email "actions@users.noreply.github.com"
+      - name: Apply patches
+        shell: bash
+        run: patch/scripts/apply-patches.sh upstream "${{ needs.prepare.outputs.patchset }}"
+      - name: Set downstream package version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: node -e "const fs=require('fs');const p='upstream/package.json';const j=require('./'+p);const n=process.env.TAG.match(/-patch\\.(\\d+)$/)[1];j.version=process.env.VERSION+'-patch.'+n;fs.writeFileSync(p, JSON.stringify(j,null,2)+'\\n')"
+      - name: Install dependencies
+        shell: bash
+        run: pnpm --dir upstream install --frozen-lockfile
+      - name: Build desktop artifacts
+        shell: bash
+        run: pnpm --dir upstream run ${{ matrix.script }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: upstream/dist/**
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ needs.prepare.outputs.tag }}" artifacts/* --repo "${{ github.repository }}" --title "${{ needs.prepare.outputs.tag }}" --generate-notes

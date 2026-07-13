@@ -2,7 +2,7 @@
 
 Patch-based downstream for Cherry Studio.
 
-`patches/cur` contains replayable changes on top of `CherryHQ/cherry-studio` `main`. The current patch accepts every file type for chat attachments only.
+`patches/cur` targets `CherryHQ/cherry-studio` `main`, and `patches/v1.9` targets the latest v1.9 release line. Both patches accept every file type for chat attachments only.
 
 ## Apply
 
