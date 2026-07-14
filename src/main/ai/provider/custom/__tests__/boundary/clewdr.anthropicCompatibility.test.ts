@@ -25,6 +25,10 @@ function createFilePrompt(filename?: string): LanguageModelV3CallOptions {
 
 const filePrompt = createFilePrompt('project.zip')
 
+const textPrompt: LanguageModelV3CallOptions = {
+  prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+}
+
 describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
   it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
     const request = await captureWithFetch((fetch) =>
@@ -110,5 +114,56 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
         prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
       } as LanguageModelV3CallOptions)
     ).rejects.toThrow('No matching discriminator')
+  })
+
+  it('isolates unknown-model max token compatibility to the Clewdr supplier type', async () => {
+    const clewdrRequest = await captureWithFetch((fetch) =>
+      createClewdrProvider({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
+    )
+    const anthropicRequest = await captureWithFetch((fetch) =>
+      createAnthropic({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
+    )
+
+    expect(clewdrRequest.body).not.toMatchObject({ max_tokens: expect.any(Number) })
+    expect(anthropicRequest.body).toMatchObject({ max_tokens: expect.any(Number) })
+  })
+
+  it('isolates explicit disabled thinking to the Clewdr supplier type', async () => {
+    const options: LanguageModelV3CallOptions = {
+      ...textPrompt,
+      providerOptions: { anthropic: { thinking: { type: 'disabled' } } }
+    }
+    const clewdrRequest = await captureWithFetch((fetch) =>
+      createClewdrProvider({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
+    )
+    const anthropicRequest = await captureWithFetch((fetch) =>
+      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
+    )
+
+    expect(clewdrRequest.body).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(anthropicRequest.body).not.toMatchObject({ thinking: { type: 'disabled' } })
+  })
+
+  it('isolates tool schema sanitization to the Clewdr supplier type', async () => {
+    const options: LanguageModelV3CallOptions = {
+      ...textPrompt,
+      tools: [
+        {
+          type: 'function',
+          name: 'inspect',
+          description: 'Inspect a value',
+          inputSchema: { type: 'object', properties: {}, additionalProperties: true }
+        }
+      ]
+    }
+    const clewdrRequest = await captureWithFetch((fetch) =>
+      createClewdrProvider({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
+    )
+    const anthropicRequest = await captureWithFetch((fetch) =>
+      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
+    )
+
+    expect(JSON.stringify(clewdrRequest.body)).toContain('"additionalProperties":false')
+    expect(JSON.stringify(anthropicRequest.body)).toContain('"additionalProperties":true')
   })
 })
