@@ -1,7 +1,7 @@
-From 4d063eb8c2c910b5cb2fa7c2433dd71f008c2b7e Mon Sep 17 00:00:00 2001
+From 718c437e60d5d31329a8fd3f7e50ee45677bc380 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Mon, 13 Jul 2026 21:00:25 +0000
-Subject: [PATCH] feat: allow all chat attachment files
+Subject: [PATCH 1/2] feat: allow all chat attachment files
 
 ---
  .../paste/__tests__/pasteHandling.test.ts     |  2 +-
