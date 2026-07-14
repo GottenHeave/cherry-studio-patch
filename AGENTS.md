@@ -13,10 +13,14 @@ upstream source tree, generated build output, or dependencies here.
 
 ## Downstream Scope
 
-The only downstream behavior change currently maintained is:
+The downstream behavior changes currently maintained are:
 
 - Chat attachments selected with the file picker, added by drag and drop, or
   added from the clipboard accept every file type.
+- The current patchset registers an explicit `clewdr` supplier type whose
+  Anthropic Messages adapter supports arbitrary file documents and normalizes
+  Claude Web stream events. Clewdr compatibility must not change the official
+  Anthropic supplier behavior.
 
 Keep that behavior limited to chat attachments. Do not relax restrictions for
 knowledge bases, avatars, plugins, or any other upload flow. Do not add
@@ -32,8 +36,8 @@ unrelated Cherry Studio changes to these patch series.
 - `scripts/check-patches.sh` currently verifies only that the selected series
   applies. Despite its name, it does not run upstream tests or builds.
 - `.github/workflows/validate-patches.yml` validates the `current` series
-  against a fresh shallow clone of upstream `main` and runs the focused chat
-  attachment test.
+  against a fresh shallow clone of upstream `main`, runs focused chat attachment
+  and Clewdr tests, and runs upstream `build:check`.
 - `.github/workflows/release.yml` applies the selected series to a fresh
   upstream checkout, builds desktop installers, and publishes only packaged
   release assets.
@@ -80,10 +84,11 @@ scripts/check-patches.sh /path/to/clean-current-worktree current
 scripts/check-patches.sh /path/to/clean-v1.9-worktree v1.9
 ```
 
-Then run the focused upstream tests that exercise each changed attachment path
-in the patched worktree. For changes to release or validation automation, also
-review the workflow's baseline-to-patchset mapping, artifact paths, and command
-syntax. Do not claim `check-patches.sh` ran tests or a build.
+Then run the focused upstream tests that exercise each changed attachment and
+Clewdr compatibility path in the patched worktree. For changes to release or
+validation automation, also review the workflow's baseline-to-patchset mapping,
+artifact paths, and command syntax. Do not claim `check-patches.sh` ran tests or
+a build.
 
 Before committing patch content, confirm:
 
@@ -91,6 +96,8 @@ Before committing patch content, confirm:
   where their upstream code permits it;
 - tests cover the affected picker, drag-and-drop, and clipboard paths;
 - non-chat upload restrictions remain unchanged.
+- Clewdr compatibility is selected by supplier type and official Anthropic
+  request and stream validation behavior remains unchanged.
 
 For every commit, confirm `git status` contains only the requested patch,
 documentation, script, or workflow changes.
