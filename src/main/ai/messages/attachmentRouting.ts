@@ -86,7 +86,7 @@ function isNative(ext: string, fileType: FileType, ns: NativeFileSupport): boole
   if (fileType === FILE_TYPE.AUDIO) return ns.audio
   if (fileType === FILE_TYPE.VIDEO) return ns.video
   if (ext === 'pdf') return ns.pdf
-  return false
+  return ns.file
 }
 
 /** Extract a non-native attachment's model-visible text by file type. `handle`

@@ -1,8 +1,291 @@
+diff --git a/dist/index.js b/dist/index.js
+index 7008095442925300a84aac94f46ee206b802fd20..dd981aefadd1ebc5834cb996644f0e5b2cac7230 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -860,6 +860,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+     ])
+   )
+ );
++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
++  "message_start",
++  "content_block_start",
++  "content_block_delta",
++  "content_block_stop",
++  "message_delta",
++  "message_stop",
++  "ping",
++  "error"
++]);
+ var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+   () => (0, import_provider_utils2.zodSchema)(
+     import_v42.z.object({
+@@ -1488,7 +1498,7 @@ async function prepareTools({
+         anthropicTools2.push({
+           name: tool.name,
+           description: tool.description,
+-          input_schema: tool.inputSchema,
++          input_schema: sanitizeJsonSchema(tool.inputSchema),
+           cache_control: cacheControl,
+           ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+           ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+@@ -2212,7 +2222,8 @@ async function convertToAnthropicMessagesPrompt({
+   sendReasoning,
+   warnings,
+   cacheControlValidator,
+-  toolNameMapping
++  toolNameMapping,
++  clewdr
+ }) {
+   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+   const betas = /* @__PURE__ */ new Set();
+@@ -2351,9 +2362,26 @@ async function convertToAnthropicMessagesPrompt({
+                         cache_control: cacheControl
+                       });
+                     } else {
+-                      throw new import_provider2.UnsupportedFunctionalityError({
+-                        functionality: `media type: ${part.mediaType}`
+-                      });
++                      const metadata = await getDocumentMetadata(
++                        part.providerOptions
++                      );
++                      if (clewdr) {
++                        anthropicContent.push({
++                          type: "document",
++                          source: {
++                            type: "base64",
++                            media_type: part.mediaType,
++                            data: (0, import_provider_utils2.convertToBase64)(part.data)
++                          },
++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
++                          ...metadata.context && { context: metadata.context },
++                          cache_control: cacheControl
++                        });
++                      } else {
++                        throw new import_provider2.UnsupportedFunctionalityError({
++                          functionality: `media type: ${part.mediaType}`
++                        });
++                      }
+                     }
+                     break;
+                   }
+@@ -3461,18 +3489,19 @@ var AnthropicMessagesLanguageModel = class {
+       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
+       warnings,
+       cacheControlValidator,
+-      toolNameMapping
++      toolNameMapping,
++      clewdr: this.config.provider === "clewdr"
+     });
+     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
+     const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
+     let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
+     const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
+-    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : (isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0);
+     const baseArgs = {
+       // model id:
+       model: this.modelId,
+       // standardized settings:
+-      max_tokens: maxTokens,
++      ...maxTokens != null && { max_tokens: maxTokens },
+       temperature,
+       top_k: topK,
+       top_p: topP,
+@@ -3485,6 +3514,9 @@ var AnthropicMessagesLanguageModel = class {
+           ...thinkingDisplay != null && { display: thinkingDisplay }
+         }
+       },
++      ...thinkingType === "disabled" && {
++        thinking: { type: "disabled" }
++      },
+       ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+         output_config: {
+           ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+@@ -3643,7 +3675,9 @@ var AnthropicMessagesLanguageModel = class {
+           details: "topP is not supported when thinking is enabled"
+         });
+       }
+-      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
++      if (maxTokens != null) {
++        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
++      }
+     } else {
+       if (isAnthropicModel && topP != null && temperature != null) {
+         warnings.push({
+@@ -4344,6 +4378,7 @@ var AnthropicMessagesLanguageModel = class {
+     let isJsonResponseFromTool = false;
+     let blockType = void 0;
+     const generateId3 = this.generateId;
++    const clewdr = this.config.provider === "clewdr";
+     const transformedStream = response.pipeThrough(
+       new TransformStream({
+         start(controller) {
+@@ -4355,6 +4390,10 @@ var AnthropicMessagesLanguageModel = class {
+             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+           }
+           if (!chunk.success) {
++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
++              return;
++            }
+             controller.enqueue({ type: "error", error: chunk.error });
+             return;
+           }
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 073cc652eb10544e16823cd11d2f721fac1f771e..654cd03aed166b7d9b0c15e6224edc8361f28f74 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -858,6 +858,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+     ])
+   )
+ );
++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
++  "message_start",
++  "content_block_start",
++  "content_block_delta",
++  "content_block_stop",
++  "message_delta",
++  "message_stop",
++  "ping",
++  "error"
++]);
+ var anthropicReasoningMetadataSchema = lazySchema2(
+   () => zodSchema2(
+     z2.object({
+@@ -1512,7 +1522,7 @@ async function prepareTools({
+         anthropicTools2.push({
+           name: tool.name,
+           description: tool.description,
+-          input_schema: tool.inputSchema,
++          input_schema: sanitizeJsonSchema(tool.inputSchema),
+           cache_control: cacheControl,
+           ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+           ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+@@ -2261,7 +2271,8 @@ async function convertToAnthropicMessagesPrompt({
+   sendReasoning,
+   warnings,
+   cacheControlValidator,
+-  toolNameMapping
++  toolNameMapping,
++  clewdr
+ }) {
+   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+   const betas = /* @__PURE__ */ new Set();
+@@ -2400,9 +2411,26 @@ async function convertToAnthropicMessagesPrompt({
+                         cache_control: cacheControl
+                       });
+                     } else {
+-                      throw new UnsupportedFunctionalityError2({
+-                        functionality: `media type: ${part.mediaType}`
+-                      });
++                      const metadata = await getDocumentMetadata(
++                        part.providerOptions
++                      );
++                      if (clewdr) {
++                        anthropicContent.push({
++                          type: "document",
++                          source: {
++                            type: "base64",
++                            media_type: part.mediaType,
++                            data: convertToBase64(part.data)
++                          },
++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
++                          ...metadata.context && { context: metadata.context },
++                          cache_control: cacheControl
++                        });
++                      } else {
++                        throw new UnsupportedFunctionalityError2({
++                          functionality: `media type: ${part.mediaType}`
++                        });
++                      }
+                     }
+                     break;
+                   }
+@@ -3510,18 +3538,19 @@ var AnthropicMessagesLanguageModel = class {
+       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
+       warnings,
+       cacheControlValidator,
+-      toolNameMapping
++      toolNameMapping,
++      clewdr: this.config.provider === "clewdr"
+     });
+     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
+     const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
+     let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
+     const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
+-    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : (isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0);
+     const baseArgs = {
+       // model id:
+       model: this.modelId,
+       // standardized settings:
+-      max_tokens: maxTokens,
++      ...maxTokens != null && { max_tokens: maxTokens },
+       temperature,
+       top_k: topK,
+       top_p: topP,
+@@ -3534,6 +3563,9 @@ var AnthropicMessagesLanguageModel = class {
+           ...thinkingDisplay != null && { display: thinkingDisplay }
+         }
+       },
++      ...thinkingType === "disabled" && {
++        thinking: { type: "disabled" }
++      },
+       ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+         output_config: {
+           ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+@@ -3692,7 +3724,9 @@ var AnthropicMessagesLanguageModel = class {
+           details: "topP is not supported when thinking is enabled"
+         });
+       }
+-      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
++      if (maxTokens != null) {
++        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
++      }
+     } else {
+       if (isAnthropicModel && topP != null && temperature != null) {
+         warnings.push({
+@@ -4393,6 +4427,7 @@ var AnthropicMessagesLanguageModel = class {
+     let isJsonResponseFromTool = false;
+     let blockType = void 0;
+     const generateId3 = this.generateId;
++    const clewdr = this.config.provider === "clewdr";
+     const transformedStream = response.pipeThrough(
+       new TransformStream({
+         start(controller) {
+@@ -4404,6 +4439,10 @@ var AnthropicMessagesLanguageModel = class {
+             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+           }
+           if (!chunk.success) {
++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
++              return;
++            }
+             controller.enqueue({ type: "error", error: chunk.error });
+             return;
+           }
 diff --git a/dist/internal/index.js b/dist/internal/index.js
-index af85cb1..df59cf5 100644
+index af85cb12ca16878f93dae60e5a590124c2627f10..ae12aa21a477cedc8c43a8b592f3e979d9334d41 100644
 --- a/dist/internal/index.js
 +++ b/dist/internal/index.js
-@@ -1480,7 +1480,7 @@ async function prepareTools({
+@@ -852,6 +852,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+     ])
+   )
+ );
++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
++  "message_start",
++  "content_block_start",
++  "content_block_delta",
++  "content_block_stop",
++  "message_delta",
++  "message_stop",
++  "ping",
++  "error"
++]);
+ var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+   () => (0, import_provider_utils2.zodSchema)(
+     import_v42.z.object({
+@@ -1480,7 +1490,7 @@ async function prepareTools({
          anthropicTools2.push({
            name: tool.name,
            description: tool.description,
@@ -11,7 +294,55 @@ index af85cb1..df59cf5 100644
            cache_control: cacheControl,
            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
-@@ -3459,12 +3459,12 @@ var AnthropicMessagesLanguageModel = class {
+@@ -2204,7 +2214,8 @@ async function convertToAnthropicMessagesPrompt({
+   sendReasoning,
+   warnings,
+   cacheControlValidator,
+-  toolNameMapping
++  toolNameMapping,
++  clewdr
+ }) {
+   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+   const betas = /* @__PURE__ */ new Set();
+@@ -2343,9 +2354,26 @@ async function convertToAnthropicMessagesPrompt({
+                         cache_control: cacheControl
+                       });
+                     } else {
+-                      throw new import_provider2.UnsupportedFunctionalityError({
+-                        functionality: `media type: ${part.mediaType}`
+-                      });
++                      const metadata = await getDocumentMetadata(
++                        part.providerOptions
++                      );
++                      if (clewdr) {
++                        anthropicContent.push({
++                          type: "document",
++                          source: {
++                            type: "base64",
++                            media_type: part.mediaType,
++                            data: (0, import_provider_utils2.convertToBase64)(part.data)
++                          },
++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
++                          ...metadata.context && { context: metadata.context },
++                          cache_control: cacheControl
++                        });
++                      } else {
++                        throw new import_provider2.UnsupportedFunctionalityError({
++                          functionality: `media type: ${part.mediaType}`
++                        });
++                      }
+                     }
+                     break;
+                   }
+@@ -3453,18 +3481,19 @@ var AnthropicMessagesLanguageModel = class {
+       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
+       warnings,
+       cacheControlValidator,
+-      toolNameMapping
++      toolNameMapping,
++      clewdr: this.config.provider === "clewdr"
+     });
+     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
      const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
      let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
      const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
@@ -26,7 +357,7 @@ index af85cb1..df59cf5 100644
        temperature,
        top_k: topK,
        top_p: topP,
-@@ -3477,6 +3477,9 @@ var AnthropicMessagesLanguageModel = class {
+@@ -3477,6 +3506,9 @@ var AnthropicMessagesLanguageModel = class {
            ...thinkingDisplay != null && { display: thinkingDisplay }
          }
        },
@@ -36,7 +367,7 @@ index af85cb1..df59cf5 100644
        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
          output_config: {
            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
-@@ -3635,7 +3638,9 @@ var AnthropicMessagesLanguageModel = class {
+@@ -3635,7 +3667,9 @@ var AnthropicMessagesLanguageModel = class {
            details: "topP is not supported when thinking is enabled"
          });
        }
@@ -47,11 +378,47 @@ index af85cb1..df59cf5 100644
      } else {
        if (isAnthropicModel && topP != null && temperature != null) {
          warnings.push({
+@@ -4336,6 +4370,7 @@ var AnthropicMessagesLanguageModel = class {
+     let isJsonResponseFromTool = false;
+     let blockType = void 0;
+     const generateId2 = this.generateId;
++    const clewdr = this.config.provider === "clewdr";
+     const transformedStream = response.pipeThrough(
+       new TransformStream({
+         start(controller) {
+@@ -4347,6 +4382,10 @@ var AnthropicMessagesLanguageModel = class {
+             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+           }
+           if (!chunk.success) {
++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
++              return;
++            }
+             controller.enqueue({ type: "error", error: chunk.error });
+             return;
+           }
 diff --git a/dist/internal/index.mjs b/dist/internal/index.mjs
-index 9c37d98..2f2652e 100644
+index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..c5e07e86fec600a2b38db3093bdbd2387eb79f04 100644
 --- a/dist/internal/index.mjs
 +++ b/dist/internal/index.mjs
-@@ -1496,7 +1496,7 @@ async function prepareTools({
+@@ -842,6 +842,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+     ])
+   )
+ );
++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
++  "message_start",
++  "content_block_start",
++  "content_block_delta",
++  "content_block_stop",
++  "message_delta",
++  "message_stop",
++  "ping",
++  "error"
++]);
+ var anthropicReasoningMetadataSchema = lazySchema2(
+   () => zodSchema2(
+     z2.object({
+@@ -1496,7 +1506,7 @@ async function prepareTools({
          anthropicTools2.push({
            name: tool.name,
            description: tool.description,
@@ -60,7 +427,55 @@ index 9c37d98..2f2652e 100644
            cache_control: cacheControl,
            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
-@@ -3500,12 +3500,12 @@ var AnthropicMessagesLanguageModel = class {
+@@ -2245,7 +2255,8 @@ async function convertToAnthropicMessagesPrompt({
+   sendReasoning,
+   warnings,
+   cacheControlValidator,
+-  toolNameMapping
++  toolNameMapping,
++  clewdr
+ }) {
+   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+   const betas = /* @__PURE__ */ new Set();
+@@ -2384,9 +2395,26 @@ async function convertToAnthropicMessagesPrompt({
+                         cache_control: cacheControl
+                       });
+                     } else {
+-                      throw new UnsupportedFunctionalityError2({
+-                        functionality: `media type: ${part.mediaType}`
+-                      });
++                      const metadata = await getDocumentMetadata(
++                        part.providerOptions
++                      );
++                      if (clewdr) {
++                        anthropicContent.push({
++                          type: "document",
++                          source: {
++                            type: "base64",
++                            media_type: part.mediaType,
++                            data: convertToBase64(part.data)
++                          },
++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
++                          ...metadata.context && { context: metadata.context },
++                          cache_control: cacheControl
++                        });
++                      } else {
++                        throw new UnsupportedFunctionalityError2({
++                          functionality: `media type: ${part.mediaType}`
++                        });
++                      }
+                     }
+                     break;
+                   }
+@@ -3494,18 +3522,19 @@ var AnthropicMessagesLanguageModel = class {
+       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
+       warnings,
+       cacheControlValidator,
+-      toolNameMapping
++      toolNameMapping,
++      clewdr: this.config.provider === "clewdr"
+     });
+     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
      const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
      let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
      const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
@@ -75,7 +490,7 @@ index 9c37d98..2f2652e 100644
        temperature,
        top_k: topK,
        top_p: topP,
-@@ -3518,6 +3518,9 @@ var AnthropicMessagesLanguageModel = class {
+@@ -3518,6 +3547,9 @@ var AnthropicMessagesLanguageModel = class {
            ...thinkingDisplay != null && { display: thinkingDisplay }
          }
        },
@@ -85,7 +500,7 @@ index 9c37d98..2f2652e 100644
        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
          output_config: {
            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
-@@ -3676,7 +3679,9 @@ var AnthropicMessagesLanguageModel = class {
+@@ -3676,7 +3708,9 @@ var AnthropicMessagesLanguageModel = class {
            details: "topP is not supported when thinking is enabled"
          });
        }
@@ -96,3 +511,22 @@ index 9c37d98..2f2652e 100644
      } else {
        if (isAnthropicModel && topP != null && temperature != null) {
          warnings.push({
+@@ -4377,6 +4411,7 @@ var AnthropicMessagesLanguageModel = class {
+     let isJsonResponseFromTool = false;
+     let blockType = void 0;
+     const generateId2 = this.generateId;
++    const clewdr = this.config.provider === "clewdr";
+     const transformedStream = response.pipeThrough(
+       new TransformStream({
+         start(controller) {
+@@ -4388,6 +4423,10 @@ var AnthropicMessagesLanguageModel = class {
+             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+           }
+           if (!chunk.success) {
++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
++              return;
++            }
+             controller.enqueue({ type: "error", error: chunk.error });
+             return;
+           }

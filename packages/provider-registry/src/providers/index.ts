@@ -11,6 +11,7 @@ import p_burncloud from './burncloud'
 import p_cerebras from './cerebras'
 import p_cherryin from './cherryin'
 import p_claude_code from './claude-code'
+import p_clewdr from './clewdr'
 import p_copilot from './copilot'
 import p_dashscope from './dashscope'
 import p_deepseek from './deepseek'
@@ -89,6 +90,7 @@ export const PROVIDERS: Provider[] = [
   p_ollama,
   p_new_api,
   p_lmstudio,
+  p_clewdr,
   p_anthropic,
   p_claude_code,
   p_openai_codex,

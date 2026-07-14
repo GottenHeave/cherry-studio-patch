@@ -5,6 +5,7 @@ import {
   type AmazonBedrockProviderSettings,
   createAmazonBedrock
 } from '@ai-sdk/amazon-bedrock'
+import type { AnthropicProvider } from '@ai-sdk/anthropic'
 import { type CerebrasProviderSettings, createCerebras } from '@ai-sdk/cerebras'
 import type { GatewayProviderSettings } from '@ai-sdk/gateway'
 import { createVertexAnthropic, type GoogleVertexAnthropicProvider } from '@ai-sdk/google-vertex/anthropic/edge'
@@ -26,6 +27,7 @@ import type { OllamaProviderSettings } from 'ollama-ai-provider-v2'
 import { createVoyage, type VoyageProviderSettings } from 'voyage-ai-provider'
 
 import { type AihubmixProviderSettings, createAihubmix } from './custom/aihubmix/aihubmixProvider'
+import { type ClewdrProviderSettings, createClewdrProvider } from './custom/clewdrProvider'
 import { createDashScopeProvider, type DashScopeProviderSettings } from './custom/dashscope/dashscopeProvider'
 import { createDmxapiProvider, type DmxapiProviderSettings } from './custom/dmxapi/dmxapiProvider'
 import { createGatewayWithImageModel } from './custom/gateway/gatewayProvider'
@@ -156,6 +158,12 @@ export const OllamaExtension = ProviderExtension.create({
   create: (options?: OllamaProviderSettings) => createOllamaWithImageModel(options)
 } as const satisfies ProviderExtensionConfig<OllamaProviderSettings, ProviderV3, 'ollama'>)
 
+export const ClewdrExtension = ProviderExtension.create({
+  name: 'clewdr',
+  supportsImageGeneration: false,
+  create: createClewdrProvider
+} as const satisfies ProviderExtensionConfig<ClewdrProviderSettings, AnthropicProvider, 'clewdr'>)
+
 /** AiHubMix — multi-backend gateway (claude→anthropic, gemini→google, gpt→openai-responses). */
 export const AiHubMixExtension = ProviderExtension.create({
   name: 'aihubmix',
@@ -282,6 +290,7 @@ export const extensions = [
   GatewayExtension,
   CerebrasExtension,
   OllamaExtension,
+  ClewdrExtension,
   AiHubMixExtension,
   NewApiExtension,
   PpioExtension,

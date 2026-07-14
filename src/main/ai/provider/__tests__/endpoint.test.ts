@@ -143,6 +143,15 @@ describe('resolveAiSdkProviderId', () => {
       ).toBe('anthropic')
     })
 
+    it('routes the Clewdr endpoint through its declared supplier type', () => {
+      expect(
+        resolveAiSdkProviderId(
+          catalogProvider('clewdr', ENDPOINT_TYPE.ANTHROPIC_MESSAGES, 'clewdr'),
+          ENDPOINT_TYPE.ANTHROPIC_MESSAGES
+        )
+      ).toBe('clewdr')
+    })
+
     it('routes openai provider + chat endpoint to openai-chat variant', () => {
       expect(
         resolveAiSdkProviderId(

@@ -23,6 +23,47 @@ describe('resolveNativeFileSupport', () => {
       'anthropic'
     )
     expect(ns.pdf).toBe(true)
+    expect(ns.file).toBe(false)
+  })
+
+  it('enables binary files for a Clewdr Anthropic endpoint', () => {
+    const ns = resolveNativeFileSupport(
+      makeProvider({ id: 'clewdr', name: 'ClewdR' }),
+      makeModel({ id: 'clewdr::claude', apiModelId: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' }),
+      'clewdr'
+    )
+
+    expect(ns.file).toBe(true)
+  })
+
+  it('uses the resolved Clewdr supplier type without inspecting provider identity', () => {
+    const ns = resolveNativeFileSupport(
+      makeProvider({ id: 'custom-id', name: 'Local proxy' }),
+      makeModel({ id: 'custom-id::claude', apiModelId: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' }),
+      'clewdr'
+    )
+
+    expect(ns.file).toBe(true)
+  })
+
+  it('does not enable binary files for Clewdr through an OpenAI-compatible adapter', () => {
+    const ns = resolveNativeFileSupport(
+      makeProvider({ id: 'clewdr', name: 'ClewdR' }),
+      makeModel({ id: 'clewdr::claude', apiModelId: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' }),
+      'openai-compatible'
+    )
+
+    expect(ns.file).toBe(false)
+  })
+
+  it('does not infer Clewdr compatibility from the display name', () => {
+    const ns = resolveNativeFileSupport(
+      makeProvider({ id: 'custom-id', name: 'ClewdR' }),
+      makeModel({ id: 'custom-id::claude', apiModelId: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' }),
+      'anthropic'
+    )
+
+    expect(ns.file).toBe(false)
   })
 
   it('no native PDF on an openai-compatible aggregator', () => {

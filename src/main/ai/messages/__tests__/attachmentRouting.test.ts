@@ -28,8 +28,9 @@ vi.mock('../attachmentTextExtraction', () => ({
 
 import { collectFileAttachments, prepareChatMessages } from '../attachmentRouting'
 
-const NONE: NativeFileSupport = { image: false, pdf: false, audio: false, video: false }
-const ALL: NativeFileSupport = { image: true, pdf: true, audio: true, video: true }
+const NONE: NativeFileSupport = { image: false, pdf: false, audio: false, video: false, file: false }
+const ALL: NativeFileSupport = { image: true, pdf: true, audio: true, video: true, file: false }
+const CLEWDR: NativeFileSupport = { ...ALL, file: true }
 
 function userMessage(parts: CherryMessagePart[]): CherryUIMessage {
   return { id: 'm1', role: 'user', parts } as CherryUIMessage
@@ -63,6 +64,17 @@ const textOf = (parts: UIMessage['parts']) =>
 afterEach(() => vi.clearAllMocks())
 
 describe('prepareChatMessages — routing', () => {
+  it('keeps a binary file inline when the provider accepts arbitrary files', async () => {
+    getByIdMock.mockResolvedValueOnce({ ext: 'zip' })
+    resolveMock.mockImplementation(async (part) => part)
+
+    const [out] = await run([fileWithEntry('e1', 'project.zip', 'application/zip')], CLEWDR)
+
+    expect(out.parts.filter((part) => part.type === 'file')).toHaveLength(1)
+    expect(resolveMock).toHaveBeenCalledOnce()
+    expect(extractMock).not.toHaveBeenCalled()
+  })
+
   it('keeps a native image inline (no extraction)', async () => {
     getByIdMock.mockResolvedValueOnce({ ext: 'png' })
     resolveMock.mockImplementation(async (p) => p)
@@ -113,6 +125,18 @@ describe('prepareChatMessages — routing', () => {
       'Attached file "a.zip":\nCannot read the attached file "a.zip" as text (unsupported file type).'
     )
     expect(extractMock).not.toHaveBeenCalled()
+  })
+
+  it('routes a ZIP through the text note path for official Anthropic support', async () => {
+    getByIdMock.mockResolvedValueOnce({ ext: 'zip' })
+    const anthropicSupport: NativeFileSupport = { ...ALL, pdf: true, file: false }
+
+    const [out] = await run([fileWithEntry('e1', 'archive.zip', 'application/zip')], anthropicSupport)
+
+    expect(textOf(out.parts)[0]).toBe(
+      'Attached file "archive.zip":\nCannot read the attached file "archive.zip" as text (unsupported file type).'
+    )
+    expect(resolveMock).not.toHaveBeenCalled()
   })
 
   it('degrades a native file to a note when materialization returns null', async () => {

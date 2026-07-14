@@ -476,6 +476,28 @@
     },
     {
       "defaultChatEndpoint": "anthropic-messages",
+      "description": "ClewdR - AI model provider",
+      "endpointConfigs": {
+        "anthropic-messages": {
+          "adapterFamily": "clewdr",
+          "baseUrl": "http://127.0.0.1:8484/v1"
+        },
+        "openai-chat-completions": {
+          "adapterFamily": "openai-compatible",
+          "baseUrl": "http://127.0.0.1:8484/v1"
+        }
+      },
+      "id": "clewdr",
+      "metadata": {
+        "website": {
+          "docs": "https://github.com/Xerxes-2/clewdr/wiki",
+          "official": "https://github.com/Xerxes-2/clewdr"
+        }
+      },
+      "name": "ClewdR"
+    },
+    {
+      "defaultChatEndpoint": "anthropic-messages",
       "description": "Anthropic - AI model provider",
       "endpointConfigs": {
         "anthropic-messages": {
@@ -1459,5 +1481,5 @@
       "presetProviderId": "minimax"
     }
   ],
-  "version": "6dd76cf1b8f4d058"
+  "version": "fa4f02386893136d"
 }

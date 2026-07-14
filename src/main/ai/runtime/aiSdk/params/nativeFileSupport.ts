@@ -31,6 +31,8 @@ export interface NativeFileSupport {
   readonly pdf: boolean
   readonly audio: boolean
   readonly video: boolean
+  /** Remaining file types accepted through a provider-specific upload extension. */
+  readonly file: boolean
 }
 
 /**
@@ -48,6 +50,7 @@ const NATIVE_FILE_PROVIDER_IDS = new Set<AppProviderId>([
   // (chat-completions resolves to `openai-chat`/`openai-compatible`).
   'openai',
   'anthropic',
+  'clewdr',
   'google',
   'azure',
   'azure-responses',
@@ -59,13 +62,15 @@ const NATIVE_FILE_PROVIDER_IDS = new Set<AppProviderId>([
 /** Providers known to choke on native file parts; force text extraction (e.g. Qiniu, #15090). */
 const FORCE_TEXT_PROVIDER_IDS = new Set<string>(['qiniu'])
 
-function isFirstPartyFileProvider(provider: Provider, aiSdkProviderId: AppProviderId): boolean {
-  if (
+function isForceTextProvider(provider: Provider): boolean {
+  return (
     FORCE_TEXT_PROVIDER_IDS.has(provider.id) ||
     (provider.presetProviderId != null && FORCE_TEXT_PROVIDER_IDS.has(provider.presetProviderId))
-  ) {
-    return false
-  }
+  )
+}
+
+function isFirstPartyFileProvider(provider: Provider, aiSdkProviderId: AppProviderId): boolean {
+  if (isForceTextProvider(provider)) return false
   return NATIVE_FILE_PROVIDER_IDS.has(aiSdkProviderId)
 }
 
@@ -74,13 +79,23 @@ function supportsNativePdf(provider: Provider, model: Model, aiSdkProviderId: Ap
   if (aiSdkProviderId === 'openai' || aiSdkProviderId === 'azure' || aiSdkProviderId === 'azure-responses') {
     return isOpenAILLMModel(model)
   }
-  if (aiSdkProviderId === 'anthropic' || aiSdkProviderId === 'anthropic-vertex' || aiSdkProviderId === 'bedrock') {
+  if (
+    aiSdkProviderId === 'anthropic' ||
+    aiSdkProviderId === 'clewdr' ||
+    aiSdkProviderId === 'anthropic-vertex' ||
+    aiSdkProviderId === 'bedrock'
+  ) {
     return isAnthropicModel(model)
   }
   if (aiSdkProviderId === 'google' || aiSdkProviderId === 'google-vertex') {
     return isGeminiModel(model)
   }
   return true
+}
+
+function supportsArbitraryFiles(provider: Provider, model: Model, aiSdkProviderId: AppProviderId): boolean {
+  if (isForceTextProvider(provider)) return false
+  return aiSdkProviderId === 'clewdr' && isAnthropicModel(model)
 }
 
 export function resolveNativeFileSupport(
@@ -92,6 +107,7 @@ export function resolveNativeFileSupport(
     image: isVisionModel(model),
     pdf: supportsNativePdf(provider, model, aiSdkProviderId),
     audio: isAudioModel(model),
-    video: isVideoModel(model)
+    video: isVideoModel(model),
+    file: supportsArbitraryFiles(provider, model, aiSdkProviderId)
   }
 }
