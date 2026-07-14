@@ -1,4 +1,4 @@
-From 86c7179301b559d6b7c6ce45a01d427a8d315f7f Mon Sep 17 00:00:00 2001
+From a7a4f9654474326bf6a210f23552805058d40998 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Tue, 14 Jul 2026 13:57:51 +0000
 Subject: [PATCH 2/2] fix(clewdr): add isolated Anthropic compatibility
@@ -18,7 +18,8 @@ Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
  src/main/ai/provider/extensions.ts            |   9 +
  .../__tests__/nativeFileSupport.test.ts       |  41 ++
  .../runtime/aiSdk/params/nativeFileSupport.ts |  30 +-
- 13 files changed, 939 insertions(+), 39 deletions(-)
+ .../claudeCode/ClaudeCodeRuntimeDriver.ts     |   2 +-
+ 14 files changed, 940 insertions(+), 40 deletions(-)
  create mode 100644 packages/provider-registry/src/providers/clewdr.ts
  create mode 100644 src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
  create mode 100644 src/main/ai/provider/custom/clewdrProvider.ts
@@ -1331,6 +1332,19 @@ index c5746ea..f12e988 100644
 +    file: supportsArbitraryFiles(provider, model, aiSdkProviderId)
    }
  }
+diff --git a/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts b/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
+index 27030de..d856447 100644
+--- a/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
++++ b/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
+@@ -571,7 +571,7 @@ async function materializeUserContent(
+     const userMessage = { id: message.id, role: 'user', parts: firstPartyParts } as CherryUIMessage
+     const [prepared] = await prepareChatMessages([userMessage], {
+       attachments: collectFileAttachments([userMessage]),
+-      nativeSupport: { image: true, pdf: false, audio: false, video: false },
++      nativeSupport: { image: true, pdf: false, audio: false, video: false, file: false },
+       isToolCapable: false
+     })
+     routedParts = prepared.parts
 -- 
 2.43.0
 
