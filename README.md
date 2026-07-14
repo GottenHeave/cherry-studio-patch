@@ -22,3 +22,7 @@ scripts/check-patches.sh /path/to/cherry-studio-worktree
 
 GitHub Actions additionally runs the focused attachment and Clewdr tests plus
 Cherry Studio's `build:check` command on the current patchset.
+
+Every push to `patchset` that changes `patches/**` publishes new current and
+v1.9.12 patch releases after validation succeeds. The release workflow also
+retains manual baseline selection for one-off rebuilds.

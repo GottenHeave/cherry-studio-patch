@@ -7,7 +7,32 @@ on:
     branches: [patchset]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
+  detect-patch-changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: detect
+        name: Detect patch changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        shell: bash
+        run: |
+          if git diff --quiet "$BEFORE" "$AFTER" -- patches/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -44,3 +69,19 @@ jobs:
           src/main/ai/provider/__tests__/endpoint.test.ts
       - name: Run upstream build checks
         run: pnpm --dir upstream build:check
+
+  release-current:
+    if: github.event_name == 'push' && needs.validate.result == 'success' && needs.detect-patch-changes.outputs.changed == 'true'
+    needs: [detect-patch-changes, validate]
+    uses: ./.github/workflows/release.yml
+    with:
+      baseline: current
+    secrets: inherit
+
+  release-v1-9:
+    if: github.event_name == 'push' && needs.validate.result == 'success' && needs.detect-patch-changes.outputs.changed == 'true'
+    needs: [detect-patch-changes, validate]
+    uses: ./.github/workflows/release.yml
+    with:
+      baseline: v1.9.12
+    secrets: inherit

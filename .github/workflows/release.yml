@@ -10,6 +10,12 @@ on:
         options:
           - current
           - v1.9.12
+  workflow_call:
+    inputs:
+      baseline:
+        description: Upstream baseline to release
+        required: true
+        type: string
 
 permissions:
   contents: write

@@ -37,10 +37,12 @@ unrelated Cherry Studio changes to these patch series.
   applies. Despite its name, it does not run upstream tests or builds.
 - `.github/workflows/validate-patches.yml` validates the `current` series
   against a fresh shallow clone of upstream `main`, runs focused chat attachment
-  and Clewdr tests, and runs upstream `build:check`.
+  and Clewdr tests, and runs upstream `build:check`. After a successful push
+  that changes `patches/**`, it releases both maintained baselines.
 - `.github/workflows/release.yml` applies the selected series to a fresh
   upstream checkout, builds desktop installers, and publishes only packaged
-  release assets.
+  release assets. It supports both manual dispatch and calls from the validation
+  workflow.
 
 ## Patch Maintenance Workflow
 
