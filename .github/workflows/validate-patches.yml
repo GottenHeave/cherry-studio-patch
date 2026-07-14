@@ -28,5 +28,19 @@ jobs:
           git config --global user.email "actions@users.noreply.github.com"
       - name: Apply patches
         run: scripts/apply-patches.sh upstream
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libevdev-dev libudev-dev libwayland-dev libx11-dev libxkbfile-dev libxtst-dev
+      - name: Install dependencies
+        run: pnpm --dir upstream install --frozen-lockfile
       - name: Verify chat attachment test
-        run: pnpm --dir upstream install --frozen-lockfile && pnpm --dir upstream exec vitest run src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx --project renderer
+        run: pnpm --dir upstream exec vitest run src/renderer/components/composer/tools/components/__tests__/AttachmentButton.test.tsx --project renderer
+      - name: Verify Clewdr compatibility tests
+        run: >-
+          pnpm --dir upstream exec vitest run
+          packages/provider-registry/src
+          src/main/ai/runtime/aiSdk/params/__tests__/nativeFileSupport.test.ts
+          src/main/ai/messages/__tests__/attachmentRouting.test.ts
+          src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
+          src/main/ai/provider/__tests__/endpoint.test.ts
+      - name: Run upstream build checks
+        run: pnpm --dir upstream build:check
