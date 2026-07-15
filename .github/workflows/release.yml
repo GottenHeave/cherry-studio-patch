@@ -108,7 +108,15 @@ jobs:
         run: pnpm --dir upstream install --frozen-lockfile
       - name: Build desktop artifacts
         shell: bash
-        run: pnpm --dir upstream run ${{ matrix.script }}
+        run: |
+          attempts=1
+          until pnpm --dir upstream run ${{ matrix.script }}; do
+            if [ "${{ runner.os }}" != "macOS" ] || [ "$attempts" -ge 3 ]; then
+              exit 1
+            fi
+            attempts=$((attempts + 1))
+            sleep 15
+          done
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.baseline }}-${{ matrix.artifact }}
