@@ -97,6 +97,7 @@ jobs:
       - name: Verify v1.9 Clewdr compatibility tests
         run: >-
           pnpm --dir upstream exec vitest run
+          src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
           src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
           src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
           src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts

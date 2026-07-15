@@ -1,0 +1,79 @@
+From a52cb56bc2b21f639d471a22895889289001493b Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 11:51:59 +0000
+Subject: [PATCH] fix(clewdr): expose provider type in v1 settings
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ .../ProviderSettings/AddProviderPopup.tsx     |  1 +
+ .../__tests__/AddProviderPopup.test.tsx       | 46 +++++++++++++++++++
+ 2 files changed, 47 insertions(+)
+ create mode 100644 src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
+
+diff --git a/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx b/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx
+index 0e8126f..f3176c2 100644
+--- a/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx
++++ b/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx
+@@ -257,6 +257,7 @@ const PopupContainer: React.FC<Props> = ({ provider, resolve }) => {
+               { label: 'OpenAI-Response', value: 'openai-response' },
+               { label: 'Gemini', value: 'gemini' },
+               { label: 'Anthropic', value: 'anthropic' },
++              { label: 'Clewdr', value: 'clewdr' },
+               { label: 'Azure OpenAI', value: 'azure-openai' },
+               { label: 'New API', value: 'new-api' },
+               { label: 'CherryIN', value: 'cherryin-type' },
+diff --git a/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx b/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
+new file mode 100644
+index 0000000..c8ed698
+--- /dev/null
++++ b/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
+@@ -0,0 +1,46 @@
++import { fireEvent, render, screen } from '@testing-library/react'
++import { TopView } from '@renderer/components/TopView'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++import AddProviderPopup from '../AddProviderPopup'
++
++vi.mock('@renderer/components/TopView', () => ({
++  TopView: {
++    hide: vi.fn(),
++    show: vi.fn()
++  }
++}))
++
++vi.mock('react-i18next', () => ({
++  initReactI18next: {
++    type: '3rdParty',
++    init: vi.fn()
++  },
++  useTranslation: () => ({
++    t: (key: string) => key
++  })
++}))
++
++describe('AddProviderPopup', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    Object.defineProperty(window, 'matchMedia', {
++      writable: true,
++      value: vi.fn().mockImplementation(() => ({
++        matches: false,
++        addListener: vi.fn(),
++        removeListener: vi.fn()
++      }))
++    })
++  })
++
++  it('offers Clewdr as a provider type', () => {
++    void AddProviderPopup.show()
++
++    const popup = vi.mocked(TopView.show).mock.calls[0][0]
++    render(popup)
++    fireEvent.mouseDown(screen.getByRole('combobox'))
++
++    expect(screen.getByText('Clewdr')).toBeInTheDocument()
++  })
++})
+-- 
+2.43.0
+
