@@ -111,7 +111,7 @@ jobs:
         run: pnpm --dir upstream run ${{ matrix.script }}
       - uses: actions/upload-artifact@v6
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ inputs.baseline }}-${{ matrix.artifact }}
           path: upstream/dist/**
           if-no-files-found: error
 
@@ -121,6 +121,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v7
         with:
+          pattern: ${{ inputs.baseline }}-*
           path: artifacts
           merge-multiple: true
       - name: Create GitHub Release
