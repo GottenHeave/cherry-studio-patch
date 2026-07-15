@@ -1,4 +1,4 @@
-From a52cb56bc2b21f639d471a22895889289001493b Mon Sep 17 00:00:00 2001
+From 2570f250377ddd97dee5cb239492f1bd9e4a9d23 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 11:51:59 +0000
 Subject: [PATCH] fix(clewdr): expose provider type in v1 settings
@@ -6,8 +6,8 @@ Subject: [PATCH] fix(clewdr): expose provider type in v1 settings
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---
  .../ProviderSettings/AddProviderPopup.tsx     |  1 +
- .../__tests__/AddProviderPopup.test.tsx       | 46 +++++++++++++++++++
- 2 files changed, 47 insertions(+)
+ .../__tests__/AddProviderPopup.test.tsx       | 49 +++++++++++++++++++
+ 2 files changed, 50 insertions(+)
  create mode 100644 src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
 
 diff --git a/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx b/src/renderer/src/pages/settings/ProviderSettings/AddProviderPopup.tsx
@@ -24,10 +24,10 @@ index 0e8126f..f3176c2 100644
                { label: 'CherryIN', value: 'cherryin-type' },
 diff --git a/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx b/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
 new file mode 100644
-index 0000000..c8ed698
+index 0000000..c33e33b
 --- /dev/null
 +++ b/src/renderer/src/pages/settings/ProviderSettings/__tests__/AddProviderPopup.test.tsx
-@@ -0,0 +1,46 @@
+@@ -0,0 +1,49 @@
 +import { fireEvent, render, screen } from '@testing-library/react'
 +import { TopView } from '@renderer/components/TopView'
 +import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -68,6 +68,9 @@ index 0000000..c8ed698
 +    void AddProviderPopup.show()
 +
 +    const popup = vi.mocked(TopView.show).mock.calls[0][0]
++    if (typeof popup === 'function') {
++      throw new TypeError('Expected AddProviderPopup to render a React node')
++    }
 +    render(popup)
 +    fireEvent.mouseDown(screen.getByRole('combobox'))
 +
