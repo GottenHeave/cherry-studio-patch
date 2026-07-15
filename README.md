@@ -6,8 +6,11 @@ Patch-based downstream for Cherry Studio.
 
 Both patchsets also register Clewdr as an explicit supplier type. Their
 Anthropic Messages adapters support arbitrary file documents and filter Claude
-Web-only stream events without changing the official Anthropic adapter. The
-v1.9 patchset seeds the model list exposed by Clewdr's `/v1/models` endpoint.
+Web-only metadata events without changing the official Anthropic adapter. Tool
+progress deltas are parsed into raw stream chunks so their message and display
+content remain available without modifying assistant text or tool arguments.
+The v1.9 patchset seeds the model list exposed by Clewdr's `/v1/models`
+endpoint.
 
 ## Apply
 

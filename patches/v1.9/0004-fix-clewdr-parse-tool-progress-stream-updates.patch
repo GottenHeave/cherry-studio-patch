@@ -1,0 +1,592 @@
+From afe7a1e35c270d3c009553ee5c570d9e1c2c6a2e Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 13:26:06 +0000
+Subject: [PATCH] fix(clewdr): parse tool progress stream updates
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ patches/@ai-sdk__anthropic.patch              | 204 ++++++++++++++----
+ pnpm-lock.yaml                                |  16 +-
+ .../__tests__/clewdrCompatibility.test.ts     |  40 ++++
+ 3 files changed, 216 insertions(+), 44 deletions(-)
+
+diff --git a/patches/@ai-sdk__anthropic.patch b/patches/@ai-sdk__anthropic.patch
+index d4b29b0..5074e46 100644
+--- a/patches/@ai-sdk__anthropic.patch
++++ b/patches/@ai-sdk__anthropic.patch
+@@ -1,8 +1,20 @@
+ diff --git a/dist/index.js b/dist/index.js
+-index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c7a6a1c07 100644
++index 55e5a95..4d25abf 100644
+ --- a/dist/index.js
+ +++ b/dist/index.js
+-@@ -787,6 +787,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++@@ -684,6 +684,11 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++             type: import_v42.z.literal("compaction_delta"),
++             content: import_v42.z.string().nullish()
++           }),
+++          import_v42.z.object({
+++            type: import_v42.z.literal("tool_use_block_update_delta"),
+++            message: import_v42.z.string().nullish(),
+++            display_content: import_v42.z.unknown().nullish()
+++          }),
++           import_v42.z.object({
++             type: import_v42.z.literal("citations_delta"),
++             citation: import_v42.z.discriminatedUnion("type", [
++@@ -787,6 +792,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+      ])
+    )
+  );
+@@ -19,7 +31,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+  var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+    () => (0, import_provider_utils2.zodSchema)(
+      import_v42.z.object({
+-@@ -2028,7 +2038,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2028,7 +2043,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -29,7 +41,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2166,9 +2177,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2166,9 +2182,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -59,7 +71,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+                      }
+                      break;
+                    }
+-@@ -3041,23 +3069,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3041,23 +3074,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
+        }
+      });
+@@ -89,7 +101,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3070,6 +3101,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3070,6 +3106,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -99,7 +111,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3225,7 +3259,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3225,7 +3264,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -110,7 +122,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3855,6 +3891,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3855,6 +3896,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId3 = this.generateId;
+@@ -118,7 +130,7 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -3866,6 +3903,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3866,6 +3908,10 @@ var AnthropicMessagesLanguageModel = class {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+@@ -129,11 +141,44 @@ index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4369,6 +4415,13 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5268,4 +5321,4 @@ function forwardAnthropicContainerIdFromLastStep({
++   createAnthropic,
++   forwardAnthropicContainerIdFromLastStep
++ });
++-//# sourceMappingURL=index.js.map
++\ No newline at end of file
+++//# sourceMappingURL=index.js.map
+ diff --git a/dist/index.mjs b/dist/index.mjs
+-index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef3900cd59 100644
++index f3f7cd2..e73c820 100644
+ --- a/dist/index.mjs
+ +++ b/dist/index.mjs
+-@@ -782,6 +782,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
++@@ -679,6 +679,11 @@ var anthropicMessagesChunkSchema = lazySchema2(
++             type: z2.literal("compaction_delta"),
++             content: z2.string().nullish()
++           }),
+++          z2.object({
+++            type: z2.literal("tool_use_block_update_delta"),
+++            message: z2.string().nullish(),
+++            display_content: z2.unknown().nullish()
+++          }),
++           z2.object({
++             type: z2.literal("citations_delta"),
++             citation: z2.discriminatedUnion("type", [
++@@ -782,6 +787,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+      ])
+    )
+  );
+@@ -150,7 +195,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+  var anthropicReasoningMetadataSchema = lazySchema2(
+    () => zodSchema2(
+      z2.object({
+-@@ -2065,7 +2075,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2065,7 +2080,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -160,7 +205,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2203,9 +2214,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2203,9 +2219,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -190,7 +235,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+                      }
+                      break;
+                    }
+-@@ -3078,23 +3106,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3078,23 +3111,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
+        }
+      });
+@@ -220,7 +265,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3107,6 +3138,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3107,6 +3143,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -230,7 +275,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3262,7 +3296,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3262,7 +3301,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -241,7 +286,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3892,6 +3928,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3892,6 +3933,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId3 = this.generateId;
+@@ -249,7 +294,7 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -3903,6 +3940,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3903,6 +3945,10 @@ var AnthropicMessagesLanguageModel = class {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+@@ -260,11 +305,44 @@ index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4406,6 +4452,13 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5344,4 +5397,4 @@ export {
++   createAnthropic,
++   forwardAnthropicContainerIdFromLastStep
++ };
++-//# sourceMappingURL=index.mjs.map
++\ No newline at end of file
+++//# sourceMappingURL=index.mjs.map
+ diff --git a/dist/internal/index.js b/dist/internal/index.js
+-index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9cb687c554 100644
++index 468e751..4a9d91f 100644
+ --- a/dist/internal/index.js
+ +++ b/dist/internal/index.js
+-@@ -779,6 +779,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++@@ -676,6 +676,11 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++             type: import_v42.z.literal("compaction_delta"),
++             content: import_v42.z.string().nullish()
++           }),
+++          import_v42.z.object({
+++            type: import_v42.z.literal("tool_use_block_update_delta"),
+++            message: import_v42.z.string().nullish(),
+++            display_content: import_v42.z.unknown().nullish()
+++          }),
++           import_v42.z.object({
++             type: import_v42.z.literal("citations_delta"),
++             citation: import_v42.z.discriminatedUnion("type", [
++@@ -779,6 +784,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+      ])
+    )
+  );
+@@ -281,7 +359,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+  var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+    () => (0, import_provider_utils2.zodSchema)(
+      import_v42.z.object({
+-@@ -2020,7 +2030,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2020,7 +2035,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -291,7 +369,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2158,9 +2169,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2158,9 +2174,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -321,7 +399,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+                      }
+                      break;
+                    }
+-@@ -3033,23 +3061,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3033,23 +3066,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
+        }
+      });
+@@ -351,7 +429,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3062,6 +3093,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3062,6 +3098,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -361,7 +439,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3217,7 +3251,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3217,7 +3256,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -372,7 +450,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3847,6 +3883,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3847,6 +3888,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId2 = this.generateId;
+@@ -380,7 +458,7 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -3858,6 +3895,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3858,6 +3900,10 @@ var AnthropicMessagesLanguageModel = class {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+@@ -391,11 +469,44 @@ index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9c
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4361,6 +4407,13 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5168,4 +5221,4 @@ var anthropicTools = {
++   anthropicTools,
++   prepareTools
++ });
++-//# sourceMappingURL=index.js.map
++\ No newline at end of file
+++//# sourceMappingURL=index.js.map
+ diff --git a/dist/internal/index.mjs b/dist/internal/index.mjs
+-index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02775da240 100644
++index 6e9ff51..9053f84 100644
+ --- a/dist/internal/index.mjs
+ +++ b/dist/internal/index.mjs
+-@@ -766,6 +766,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
++@@ -663,6 +663,11 @@ var anthropicMessagesChunkSchema = lazySchema2(
++             type: z2.literal("compaction_delta"),
++             content: z2.string().nullish()
++           }),
+++          z2.object({
+++            type: z2.literal("tool_use_block_update_delta"),
+++            message: z2.string().nullish(),
+++            display_content: z2.unknown().nullish()
+++          }),
++           z2.object({
++             type: z2.literal("citations_delta"),
++             citation: z2.discriminatedUnion("type", [
++@@ -766,6 +771,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+      ])
+    )
+  );
+@@ -412,7 +523,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+  var anthropicReasoningMetadataSchema = lazySchema2(
+    () => zodSchema2(
+      z2.object({
+-@@ -2049,7 +2059,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2049,7 +2064,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -422,7 +533,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2187,9 +2198,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2187,9 +2203,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -452,7 +563,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+                      }
+                      break;
+                    }
+-@@ -3062,23 +3090,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3062,23 +3095,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
+        }
+      });
+@@ -482,7 +593,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3091,6 +3122,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3091,6 +3127,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -492,7 +603,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3246,7 +3280,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3246,7 +3285,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -503,7 +614,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3876,6 +3912,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3876,6 +3917,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId2 = this.generateId;
+@@ -511,7 +622,7 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -3887,6 +3924,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3887,6 +3929,10 @@ var AnthropicMessagesLanguageModel = class {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+@@ -522,3 +633,24 @@ index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4390,6 +4436,13 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5236,4 +5289,4 @@ export {
++   anthropicTools,
++   prepareTools
++ };
++-//# sourceMappingURL=index.mjs.map
++\ No newline at end of file
+++//# sourceMappingURL=index.mjs.map
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 73aaab6..9bb6b89 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -35,7 +35,7 @@ overrides:
+ 
+ patchedDependencies:
+   '@ai-sdk/anthropic':
+-    hash: 469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3
++    hash: 06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b
+     path: patches/@ai-sdk__anthropic.patch
+   '@ai-sdk/deepseek@2.0.30':
+     hash: db4c4c1e60c18e61952ec4432de7a401adf44420bdbfe4bb6f726a8958642790
+@@ -189,7 +189,7 @@ importers:
+         version: 4.0.96(zod@4.3.4)
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
++        version: 3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -1303,7 +1303,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.6)
++        version: 3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.6)
+       '@ai-sdk/google':
+         specifier: ^3.0.64
+         version: 3.0.64(patch_hash=3dbdd2fbbe5a44bc23a04b1195329dd8d78043447e925342ad5ed53c8c3b96ec)(zod@4.3.6)
+@@ -1334,7 +1334,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
++        version: 3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -12933,7 +12933,7 @@ snapshots:
+ 
+   '@ai-sdk/amazon-bedrock@4.0.96(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       '@smithy/eventstream-codec': 4.2.14
+@@ -12941,13 +12941,13 @@ snapshots:
+       aws4fetch: 1.0.20
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)':
++  '@ai-sdk/anthropic@3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.4)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.6)':
++  '@ai-sdk/anthropic@3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.6)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.6)
+@@ -12995,7 +12995,7 @@ snapshots:
+ 
+   '@ai-sdk/google-vertex@4.0.112(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.71(patch_hash=06e53737767642161614993f1930e90840adf8fd3e41cff43b887ccf12e9724b)(zod@4.3.4)
+       '@ai-sdk/google': 3.0.64(patch_hash=3dbdd2fbbe5a44bc23a04b1195329dd8d78043447e925342ad5ed53c8c3b96ec)(zod@4.3.4)
+       '@ai-sdk/openai-compatible': 2.0.41(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+index 589c223..af59fd0 100644
+--- a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
++++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+@@ -47,6 +47,16 @@ const textPrompt: LanguageModelV3CallOptions = {
+   prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+ }
+ 
++const toolUseBlockUpdate = {
++  type: 'content_block_delta',
++  index: 2,
++  delta: {
++    type: 'tool_use_block_update_delta',
++    message: 'View the uploaded file',
++    display_content: { type: 'text', text: 'View the uploaded file' }
++  }
++}
++
+ describe('Clewdr Anthropic compatibility', () => {
+   it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
+     const request = await captureWithFetch((fetch) =>
+@@ -120,6 +130,36 @@ describe('Clewdr Anthropic compatibility', () => {
+     ).rejects.toThrow('No matching discriminator')
+   })
+ 
++  it('parses Clewdr tool progress updates as raw stream chunks', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++    const result = await createClewdr({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(textPrompt)
++    const chunks: LanguageModelV3StreamPart[] = []
++
++    for await (const chunk of result.stream) chunks.push(chunk)
++
++    expect(chunks).toContainEqual({ type: 'raw', rawValue: toolUseBlockUpdate })
++  })
++
++  it('rejects Clewdr-only tool progress updates for the official Anthropic provider', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++
++    await expect(
++      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(textPrompt)
++    ).rejects.toThrow()
++  })
++
+   it('keeps unknown-model max token compatibility out of the official Anthropic provider', async () => {
+     const clewdrRequest = await captureWithFetch((fetch) =>
+       createClewdr({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
+-- 
+2.43.0
+
