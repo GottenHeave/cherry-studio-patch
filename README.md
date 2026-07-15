@@ -25,5 +25,6 @@ GitHub Actions additionally applies both patchsets, runs their focused Clewdr
 tests, and runs Cherry Studio's `build:check` command for both baselines.
 
 Every push to `patchset` that changes `patches/**` publishes new current and
-v1.9.12 patch releases after validation succeeds. The release workflow also
+v1.9.12 patch releases. Each baseline publishes as soon as its own validation
+succeeds, independently of the other baseline. The release workflow also
 retains manual baseline selection for one-off rebuilds.

@@ -109,9 +109,8 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       needs.validate.result == 'success' &&
-      needs.validate-v1-9.result == 'success' &&
       needs.detect-patch-changes.outputs.changed == 'true'
-    needs: [detect-patch-changes, validate, validate-v1-9]
+    needs: [detect-patch-changes, validate]
     uses: ./.github/workflows/release.yml
     with:
       baseline: current
@@ -120,10 +119,9 @@ jobs:
   release-v1-9:
     if: >-
       github.event_name == 'push' &&
-      needs.validate.result == 'success' &&
       needs.validate-v1-9.result == 'success' &&
       needs.detect-patch-changes.outputs.changed == 'true'
-    needs: [detect-patch-changes, validate, validate-v1-9]
+    needs: [detect-patch-changes, validate-v1-9]
     uses: ./.github/workflows/release.yml
     with:
       baseline: v1.9.12
