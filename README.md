@@ -11,6 +11,9 @@ official Anthropic adapter. Tool progress deltas remain available without
 modifying assistant text or tool arguments, and raw chunks are emitted once
 when callers request them explicitly. Focused tests also verify that a Clewdr
 stream network error does not repeat the HTTP request when retries are disabled.
+Clewdr requests omit Cherry's local `tools` and `tool_choice` fields. Remote
+tool events remain unchanged as raw chunks and do not become local tool calls,
+execute local tools, or trigger a second Messages request.
 Provider tools without a dedicated Cherry renderer use the generic tool card,
 which shows the tool name, input arguments, and execution result instead of an
 empty expanded dropdown.
