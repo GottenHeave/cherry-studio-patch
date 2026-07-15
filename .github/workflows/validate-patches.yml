@@ -70,17 +70,60 @@ jobs:
       - name: Run upstream build checks
         run: pnpm --dir upstream build:check
 
+  validate-v1-9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.15.0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.27.0
+      - name: Fetch upstream v1.9.12
+        run: git clone --depth 1 --branch v1.9.12 https://github.com/CherryHQ/cherry-studio.git upstream
+      - name: Configure patch commit identity
+        run: |
+          git config --global user.name "cherry-studio-patch automation"
+          git config --global user.email "actions@users.noreply.github.com"
+      - name: Apply v1.9 patches
+        run: scripts/apply-patches.sh upstream v1.9
+      - name: Install native build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libevdev-dev libudev-dev libwayland-dev libx11-dev libxkbfile-dev libxtst-dev
+      - name: Install dependencies
+        run: pnpm --dir upstream install --frozen-lockfile
+      - name: Verify v1.9 Clewdr compatibility tests
+        run: >-
+          pnpm --dir upstream exec vitest run
+          src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+          src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
+          src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
+          src/renderer/src/config/models/__tests__/clewdr.test.ts
+          --project renderer
+      - name: Run upstream v1.9 build checks
+        run: pnpm --dir upstream build:check
+
   release-current:
-    if: github.event_name == 'push' && needs.validate.result == 'success' && needs.detect-patch-changes.outputs.changed == 'true'
-    needs: [detect-patch-changes, validate]
+    if: >-
+      github.event_name == 'push' &&
+      needs.validate.result == 'success' &&
+      needs.validate-v1-9.result == 'success' &&
+      needs.detect-patch-changes.outputs.changed == 'true'
+    needs: [detect-patch-changes, validate, validate-v1-9]
     uses: ./.github/workflows/release.yml
     with:
       baseline: current
     secrets: inherit
 
   release-v1-9:
-    if: github.event_name == 'push' && needs.validate.result == 'success' && needs.detect-patch-changes.outputs.changed == 'true'
-    needs: [detect-patch-changes, validate]
+    if: >-
+      github.event_name == 'push' &&
+      needs.validate.result == 'success' &&
+      needs.validate-v1-9.result == 'success' &&
+      needs.detect-patch-changes.outputs.changed == 'true'
+    needs: [detect-patch-changes, validate, validate-v1-9]
     uses: ./.github/workflows/release.yml
     with:
       baseline: v1.9.12

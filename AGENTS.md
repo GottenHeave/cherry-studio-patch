@@ -17,10 +17,10 @@ The downstream behavior changes currently maintained are:
 
 - Chat attachments selected with the file picker, added by drag and drop, or
   added from the clipboard accept every file type.
-- The current patchset registers an explicit `clewdr` supplier type whose
+- Both patchsets register an explicit `clewdr` supplier type whose
   Anthropic Messages adapter supports arbitrary file documents and normalizes
   Claude Web stream events. Clewdr compatibility must not change the official
-  Anthropic supplier behavior.
+  Anthropic supplier behavior. The v1.9 defaults mirror Clewdr's model list.
 
 Keep that behavior limited to chat attachments. Do not relax restrictions for
 knowledge bases, avatars, plugins, or any other upload flow. Do not add
@@ -35,10 +35,10 @@ unrelated Cherry Studio changes to these patch series.
   `git am --3way`. Its accepted patchset names are `current` and `v1.9`.
 - `scripts/check-patches.sh` currently verifies only that the selected series
   applies. Despite its name, it does not run upstream tests or builds.
-- `.github/workflows/validate-patches.yml` validates the `current` series
-  against a fresh shallow clone of upstream `main`, runs focused chat attachment
-  and Clewdr tests, and runs upstream `build:check`. After a successful push
-  that changes `patches/**`, it releases both maintained baselines.
+- `.github/workflows/validate-patches.yml` validates both series against fresh
+  shallow clones of their upstream baselines, runs focused chat attachment and
+  Clewdr tests, and runs upstream `build:check`. After a successful push that
+  changes `patches/**`, it releases both maintained baselines.
 - `.github/workflows/release.yml` applies the selected series to a fresh
   upstream checkout, builds desktop installers, and publishes only packaged
   release assets. It supports both manual dispatch and calls from the validation

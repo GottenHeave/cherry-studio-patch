@@ -1,0 +1,1128 @@
+From e30fe48188edb166e198a950bf8135f37a2440fe Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 05:14:16 +0000
+Subject: [PATCH 2/2] feat(clewdr): add v1 provider compatibility
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ patches/@ai-sdk__anthropic.patch              | 476 +++++++++++++++++-
+ pnpm-lock.yaml                                |  16 +-
+ .../__tests__/fileProcessor.clewdr.test.ts    |  75 +++
+ .../src/aiCore/prepareParams/fileProcessor.ts |  11 +
+ .../__tests__/clewdrCompatibility.test.ts     | 150 ++++++
+ .../__tests__/integratedRegistry.test.ts      |   6 +
+ .../aiCore/provider/custom/clewdr-provider.ts |   7 +
+ .../src/aiCore/provider/extensions/index.ts   |   9 +
+ .../config/models/__tests__/clewdr.test.ts    |  15 +
+ src/renderer/src/config/models/default.ts     |  44 ++
+ src/renderer/src/config/providers.ts          |  20 +
+ src/renderer/src/types/provider.ts            |   3 +
+ 12 files changed, 808 insertions(+), 24 deletions(-)
+ create mode 100644 src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
+ create mode 100644 src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+ create mode 100644 src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
+ create mode 100644 src/renderer/src/config/models/__tests__/clewdr.test.ts
+
+diff --git a/patches/@ai-sdk__anthropic.patch b/patches/@ai-sdk__anthropic.patch
+index 76a703e8b..d4b29b004 100644
+--- a/patches/@ai-sdk__anthropic.patch
++++ b/patches/@ai-sdk__anthropic.patch
+@@ -1,80 +1,524 @@
++diff --git a/dist/index.js b/dist/index.js
++index 55e5a955c8ffcb87e61deff5d64f893449e04064..d61029eeb3b80843ae3f8cdc978c0e1c7a6a1c07 100644
++--- a/dist/index.js
+++++ b/dist/index.js
++@@ -787,6 +787,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++     ])
++   )
++ );
+++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+++  "message_start",
+++  "content_block_start",
+++  "content_block_delta",
+++  "content_block_stop",
+++  "message_delta",
+++  "message_stop",
+++  "ping",
+++  "error"
+++]);
++ var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
++   () => (0, import_provider_utils2.zodSchema)(
++     import_v42.z.object({
++@@ -2028,7 +2038,8 @@ async function convertToAnthropicMessagesPrompt({
++   sendReasoning,
++   warnings,
++   cacheControlValidator,
++-  toolNameMapping
+++  toolNameMapping,
+++  clewdr
++ }) {
++   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
++   const betas = /* @__PURE__ */ new Set();
++@@ -2166,9 +2177,26 @@ async function convertToAnthropicMessagesPrompt({
++                         cache_control: cacheControl
++                       });
++                     } else {
++-                      throw new import_provider2.UnsupportedFunctionalityError({
++-                        functionality: `media type: ${part.mediaType}`
++-                      });
+++                      const metadata = await getDocumentMetadata(
+++                        part.providerOptions
+++                      );
+++                      if (clewdr) {
+++                        anthropicContent.push({
+++                          type: "document",
+++                          source: {
+++                            type: "base64",
+++                            media_type: part.mediaType,
+++                            data: (0, import_provider_utils14.convertToBase64)(part.data)
+++                          },
+++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
+++                          ...metadata.context && { context: metadata.context },
+++                          cache_control: cacheControl
+++                        });
+++                      } else {
+++                        throw new import_provider2.UnsupportedFunctionalityError({
+++                          functionality: `media type: ${part.mediaType}`
+++                        });
+++                      }
++                     }
++                     break;
++                   }
++@@ -3041,23 +3069,26 @@ var AnthropicMessagesLanguageModel = class {
++         "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
++       }
++     });
+++    const clewdr = this.config.provider === "clewdr";
+++    const compatibleEndpoint = this.config.provider !== "anthropic.messages";
++     const { prompt: messagesPrompt, betas } = await convertToAnthropicMessagesPrompt({
++       prompt,
++       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
++       warnings,
++       cacheControlValidator,
++-      toolNameMapping
+++      toolNameMapping,
+++      clewdr
++     });
++     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
++     const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
++     let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
++     const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
++-    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
+++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : !compatibleEndpoint || isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0;
++     const baseArgs = {
++       // model id:
++       model: this.modelId,
++       // standardized settings:
++-      max_tokens: maxTokens,
+++      ...compatibleEndpoint && maxTokens == null ? {} : { max_tokens: maxTokens },
++       temperature,
++       top_k: topK,
++       top_p: topP,
++@@ -3070,6 +3101,9 @@ var AnthropicMessagesLanguageModel = class {
++           ...thinkingDisplay != null && { display: thinkingDisplay }
++         }
++       },
+++      ...compatibleEndpoint && thinkingType === "disabled" && {
+++        thinking: { type: "disabled" }
+++      },
++       ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
++         output_config: {
++           ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
++@@ -3225,7 +3259,9 @@ var AnthropicMessagesLanguageModel = class {
++           details: "topP is not supported when thinking is enabled"
++         });
++       }
++-      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+++      if (!compatibleEndpoint || maxTokens != null) {
+++        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+++      }
++     } else {
++       if (isAnthropicModel && topP != null && temperature != null) {
++         warnings.push({
++@@ -3855,6 +3891,7 @@ var AnthropicMessagesLanguageModel = class {
++     let isJsonResponseFromTool = false;
++     let blockType = void 0;
++     const generateId3 = this.generateId;
+++    const clewdr = this.config.provider === "clewdr";
++     const transformedStream = response.pipeThrough(
++       new TransformStream({
++         start(controller) {
++@@ -3866,6 +3903,10 @@ var AnthropicMessagesLanguageModel = class {
++             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
++           }
++           if (!chunk.success) {
+++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++              return;
+++            }
++             controller.enqueue({ type: "error", error: chunk.error });
++             return;
++           }
++diff --git a/dist/index.mjs b/dist/index.mjs
++index f3f7cd24c23afdd7e56d54e3256ebe897cf76318..5325b80fb4043e9cf4aced14727511ef3900cd59 100644
++--- a/dist/index.mjs
+++++ b/dist/index.mjs
++@@ -782,6 +782,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
++     ])
++   )
++ );
+++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+++  "message_start",
+++  "content_block_start",
+++  "content_block_delta",
+++  "content_block_stop",
+++  "message_delta",
+++  "message_stop",
+++  "ping",
+++  "error"
+++]);
++ var anthropicReasoningMetadataSchema = lazySchema2(
++   () => zodSchema2(
++     z2.object({
++@@ -2065,7 +2075,8 @@ async function convertToAnthropicMessagesPrompt({
++   sendReasoning,
++   warnings,
++   cacheControlValidator,
++-  toolNameMapping
+++  toolNameMapping,
+++  clewdr
++ }) {
++   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
++   const betas = /* @__PURE__ */ new Set();
++@@ -2203,9 +2214,26 @@ async function convertToAnthropicMessagesPrompt({
++                         cache_control: cacheControl
++                       });
++                     } else {
++-                      throw new UnsupportedFunctionalityError2({
++-                        functionality: `media type: ${part.mediaType}`
++-                      });
+++                      const metadata = await getDocumentMetadata(
+++                        part.providerOptions
+++                      );
+++                      if (clewdr) {
+++                        anthropicContent.push({
+++                          type: "document",
+++                          source: {
+++                            type: "base64",
+++                            media_type: part.mediaType,
+++                            data: convertToBase64(part.data)
+++                          },
+++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
+++                          ...metadata.context && { context: metadata.context },
+++                          cache_control: cacheControl
+++                        });
+++                      } else {
+++                        throw new UnsupportedFunctionalityError2({
+++                          functionality: `media type: ${part.mediaType}`
+++                        });
+++                      }
++                     }
++                     break;
++                   }
++@@ -3078,23 +3106,26 @@ var AnthropicMessagesLanguageModel = class {
++         "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
++       }
++     });
+++    const clewdr = this.config.provider === "clewdr";
+++    const compatibleEndpoint = this.config.provider !== "anthropic.messages";
++     const { prompt: messagesPrompt, betas } = await convertToAnthropicMessagesPrompt({
++       prompt,
++       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
++       warnings,
++       cacheControlValidator,
++-      toolNameMapping
+++      toolNameMapping,
+++      clewdr
++     });
++     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
++     const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
++     let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
++     const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
++-    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
+++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : !compatibleEndpoint || isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0;
++     const baseArgs = {
++       // model id:
++       model: this.modelId,
++       // standardized settings:
++-      max_tokens: maxTokens,
+++      ...compatibleEndpoint && maxTokens == null ? {} : { max_tokens: maxTokens },
++       temperature,
++       top_k: topK,
++       top_p: topP,
++@@ -3107,6 +3138,9 @@ var AnthropicMessagesLanguageModel = class {
++           ...thinkingDisplay != null && { display: thinkingDisplay }
++         }
++       },
+++      ...compatibleEndpoint && thinkingType === "disabled" && {
+++        thinking: { type: "disabled" }
+++      },
++       ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
++         output_config: {
++           ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
++@@ -3262,7 +3296,9 @@ var AnthropicMessagesLanguageModel = class {
++           details: "topP is not supported when thinking is enabled"
++         });
++       }
++-      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+++      if (!compatibleEndpoint || maxTokens != null) {
+++        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+++      }
++     } else {
++       if (isAnthropicModel && topP != null && temperature != null) {
++         warnings.push({
++@@ -3892,6 +3928,7 @@ var AnthropicMessagesLanguageModel = class {
++     let isJsonResponseFromTool = false;
++     let blockType = void 0;
++     const generateId3 = this.generateId;
+++    const clewdr = this.config.provider === "clewdr";
++     const transformedStream = response.pipeThrough(
++       new TransformStream({
++         start(controller) {
++@@ -3903,6 +3940,10 @@ var AnthropicMessagesLanguageModel = class {
++             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
++           }
++           if (!chunk.success) {
+++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++              return;
+++            }
++             controller.enqueue({ type: "error", error: chunk.error });
++             return;
++           }
+ diff --git a/dist/internal/index.js b/dist/internal/index.js
+-index 468e7518923b5bfaffa3a5a601e233b5271889ae..8a20d03b8186bb35c2ddce6a50997a44ed80735a 100644
++index 468e7518923b5bfaffa3a5a601e233b5271889ae..b698e03f4749c88c58bc02cac6bc2f9cb687c554 100644
+ --- a/dist/internal/index.js
+ +++ b/dist/internal/index.js
+-@@ -3044,12 +3044,12 @@ var AnthropicMessagesLanguageModel = class {
++@@ -779,6 +779,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++     ])
++   )
++ );
+++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+++  "message_start",
+++  "content_block_start",
+++  "content_block_delta",
+++  "content_block_stop",
+++  "message_delta",
+++  "message_stop",
+++  "ping",
+++  "error"
+++]);
++ var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
++   () => (0, import_provider_utils2.zodSchema)(
++     import_v42.z.object({
++@@ -2020,7 +2030,8 @@ async function convertToAnthropicMessagesPrompt({
++   sendReasoning,
++   warnings,
++   cacheControlValidator,
++-  toolNameMapping
+++  toolNameMapping,
+++  clewdr
++ }) {
++   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
++   const betas = /* @__PURE__ */ new Set();
++@@ -2158,9 +2169,26 @@ async function convertToAnthropicMessagesPrompt({
++                         cache_control: cacheControl
++                       });
++                     } else {
++-                      throw new import_provider2.UnsupportedFunctionalityError({
++-                        functionality: `media type: ${part.mediaType}`
++-                      });
+++                      const metadata = await getDocumentMetadata(
+++                        part.providerOptions
+++                      );
+++                      if (clewdr) {
+++                        anthropicContent.push({
+++                          type: "document",
+++                          source: {
+++                            type: "base64",
+++                            media_type: part.mediaType,
+++                            data: (0, import_provider_utils14.convertToBase64)(part.data)
+++                          },
+++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
+++                          ...metadata.context && { context: metadata.context },
+++                          cache_control: cacheControl
+++                        });
+++                      } else {
+++                        throw new import_provider2.UnsupportedFunctionalityError({
+++                          functionality: `media type: ${part.mediaType}`
+++                        });
+++                      }
++                     }
++                     break;
++                   }
++@@ -3033,23 +3061,26 @@ var AnthropicMessagesLanguageModel = class {
++         "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
++       }
++     });
+++    const clewdr = this.config.provider === "clewdr";
+++    const compatibleEndpoint = this.config.provider !== "anthropic.messages";
++     const { prompt: messagesPrompt, betas } = await convertToAnthropicMessagesPrompt({
++       prompt,
++       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
++       warnings,
++       cacheControlValidator,
++-      toolNameMapping
+++      toolNameMapping,
+++      clewdr
++     });
++     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
+      const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
+      let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
+      const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
+ -    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
+-+    const maxTokens = maxOutputTokens != null ? maxOutputTokens : (isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0);
+++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : !compatibleEndpoint || isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0;
+      const baseArgs = {
+        // model id:
+        model: this.modelId,
+        // standardized settings:
+ -      max_tokens: maxTokens,
+-+      ...(maxTokens != null && { max_tokens: maxTokens }),
+++      ...compatibleEndpoint && maxTokens == null ? {} : { max_tokens: maxTokens },
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3062,6 +3062,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3062,6 +3093,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+-+      ...thinkingType === "disabled" && {
+++      ...compatibleEndpoint && thinkingType === "disabled" && {
+ +        thinking: { type: "disabled" }
+ +      },
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3217,7 +3220,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3217,7 +3251,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+ -      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+-+      if (maxTokens != null) {
+++      if (!compatibleEndpoint || maxTokens != null) {
+ +        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+ +      }
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
++@@ -3847,6 +3883,7 @@ var AnthropicMessagesLanguageModel = class {
++     let isJsonResponseFromTool = false;
++     let blockType = void 0;
++     const generateId2 = this.generateId;
+++    const clewdr = this.config.provider === "clewdr";
++     const transformedStream = response.pipeThrough(
++       new TransformStream({
++         start(controller) {
++@@ -3858,6 +3895,10 @@ var AnthropicMessagesLanguageModel = class {
++             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
++           }
++           if (!chunk.success) {
+++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++              return;
+++            }
++             controller.enqueue({ type: "error", error: chunk.error });
++             return;
++           }
+ diff --git a/dist/internal/index.mjs b/dist/internal/index.mjs
+-index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..a601f20a3d15672f55b35ee78980de3afca34784 100644
++index 6e9ff51dd8ccc4785ecd423ec34a84eba8a7d42d..cdcbc21fd7d3af0eeaa366bc240c7a02775da240 100644
+ --- a/dist/internal/index.mjs
+ +++ b/dist/internal/index.mjs
+-@@ -3073,12 +3073,12 @@ var AnthropicMessagesLanguageModel = class {
++@@ -766,6 +766,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
++     ])
++   )
++ );
+++var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+++  "message_start",
+++  "content_block_start",
+++  "content_block_delta",
+++  "content_block_stop",
+++  "message_delta",
+++  "message_stop",
+++  "ping",
+++  "error"
+++]);
++ var anthropicReasoningMetadataSchema = lazySchema2(
++   () => zodSchema2(
++     z2.object({
++@@ -2049,7 +2059,8 @@ async function convertToAnthropicMessagesPrompt({
++   sendReasoning,
++   warnings,
++   cacheControlValidator,
++-  toolNameMapping
+++  toolNameMapping,
+++  clewdr
++ }) {
++   var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s;
++   const betas = /* @__PURE__ */ new Set();
++@@ -2187,9 +2198,26 @@ async function convertToAnthropicMessagesPrompt({
++                         cache_control: cacheControl
++                       });
++                     } else {
++-                      throw new UnsupportedFunctionalityError2({
++-                        functionality: `media type: ${part.mediaType}`
++-                      });
+++                      const metadata = await getDocumentMetadata(
+++                        part.providerOptions
+++                      );
+++                      if (clewdr) {
+++                        anthropicContent.push({
+++                          type: "document",
+++                          source: {
+++                            type: "base64",
+++                            media_type: part.mediaType,
+++                            data: convertToBase64(part.data)
+++                          },
+++                          title: metadata.title != null ? metadata.title : part.filename != null ? part.filename : "file",
+++                          ...metadata.context && { context: metadata.context },
+++                          cache_control: cacheControl
+++                        });
+++                      } else {
+++                        throw new UnsupportedFunctionalityError2({
+++                          functionality: `media type: ${part.mediaType}`
+++                        });
+++                      }
++                     }
++                     break;
++                   }
++@@ -3062,23 +3090,26 @@ var AnthropicMessagesLanguageModel = class {
++         "anthropic.tool_search_bm25_20251119": "tool_search_tool_bm25"
++       }
++     });
+++    const clewdr = this.config.provider === "clewdr";
+++    const compatibleEndpoint = this.config.provider !== "anthropic.messages";
++     const { prompt: messagesPrompt, betas } = await convertToAnthropicMessagesPrompt({
++       prompt,
++       sendReasoning: (_d = anthropicOptions == null ? void 0 : anthropicOptions.sendReasoning) != null ? _d : true,
++       warnings,
++       cacheControlValidator,
++-      toolNameMapping
+++      toolNameMapping,
+++      clewdr
++     });
++     const thinkingType = (_e = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _e.type;
+      const isThinking = thinkingType === "enabled" || thinkingType === "adaptive";
+      let thinkingBudget = thinkingType === "enabled" ? (_f = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _f.budgetTokens : void 0;
+      const thinkingDisplay = thinkingType === "adaptive" ? (_g = anthropicOptions == null ? void 0 : anthropicOptions.thinking) == null ? void 0 : _g.display : void 0;
+ -    const maxTokens = maxOutputTokens != null ? maxOutputTokens : maxOutputTokensForModel;
+-+    const maxTokens = maxOutputTokens != null ? maxOutputTokens : (isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0);
+++    const maxTokens = maxOutputTokens != null ? maxOutputTokens : !compatibleEndpoint || isKnownModel || this.modelId.startsWith("claude-") ? maxOutputTokensForModel : void 0;
+      const baseArgs = {
+        // model id:
+        model: this.modelId,
+        // standardized settings:
+ -      max_tokens: maxTokens,
+-+      ...(maxTokens != null && { max_tokens: maxTokens }),
+++      ...compatibleEndpoint && maxTokens == null ? {} : { max_tokens: maxTokens },
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3091,6 +3091,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3091,6 +3122,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+-+      ...thinkingType === "disabled" && {
+++      ...compatibleEndpoint && thinkingType === "disabled" && {
+ +        thinking: { type: "disabled" }
+ +      },
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3246,7 +3249,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3246,7 +3280,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+ -      baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+-+      if (maxTokens != null) {
+++      if (!compatibleEndpoint || maxTokens != null) {
+ +        baseArgs.max_tokens = maxTokens + (thinkingBudget != null ? thinkingBudget : 0);
+ +      }
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
++@@ -3876,6 +3912,7 @@ var AnthropicMessagesLanguageModel = class {
++     let isJsonResponseFromTool = false;
++     let blockType = void 0;
++     const generateId2 = this.generateId;
+++    const clewdr = this.config.provider === "clewdr";
++     const transformedStream = response.pipeThrough(
++       new TransformStream({
++         start(controller) {
++@@ -3887,6 +3924,10 @@ var AnthropicMessagesLanguageModel = class {
++             controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
++           }
++           if (!chunk.success) {
+++            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+++            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++              return;
+++            }
++             controller.enqueue({ type: "error", error: chunk.error });
++             return;
++           }
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 31fdb35a9..73aaab6b6 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -35,7 +35,7 @@ overrides:
+ 
+ patchedDependencies:
+   '@ai-sdk/anthropic':
+-    hash: 9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9
++    hash: 469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3
+     path: patches/@ai-sdk__anthropic.patch
+   '@ai-sdk/deepseek@2.0.30':
+     hash: db4c4c1e60c18e61952ec4432de7a401adf44420bdbfe4bb6f726a8958642790
+@@ -189,7 +189,7 @@ importers:
+         version: 4.0.96(zod@4.3.4)
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.4)
++        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -1303,7 +1303,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.6)
++        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.6)
+       '@ai-sdk/google':
+         specifier: ^3.0.64
+         version: 3.0.64(patch_hash=3dbdd2fbbe5a44bc23a04b1195329dd8d78043447e925342ad5ed53c8c3b96ec)(zod@4.3.6)
+@@ -1334,7 +1334,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: ^3.0.71
+-        version: 3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.4)
++        version: 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -12933,7 +12933,7 @@ snapshots:
+ 
+   '@ai-sdk/amazon-bedrock@4.0.96(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       '@smithy/eventstream-codec': 4.2.14
+@@ -12941,13 +12941,13 @@ snapshots:
+       aws4fetch: 1.0.20
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.4)':
++  '@ai-sdk/anthropic@3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.6)':
++  '@ai-sdk/anthropic@3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.6)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.6)
+@@ -12995,7 +12995,7 @@ snapshots:
+ 
+   '@ai-sdk/google-vertex@4.0.112(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.71(patch_hash=9e459da7b108668e23131b383077b3c254fe1cc93a51768da3615f4489299af9)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.71(patch_hash=469a99f7ec1f4f8999ea8240778564ffb5adfc655f14eb66f87eac6f742098b3)(zod@4.3.4)
+       '@ai-sdk/google': 3.0.64(patch_hash=3dbdd2fbbe5a44bc23a04b1195329dd8d78043447e925342ad5ed53c8c3b96ec)(zod@4.3.4)
+       '@ai-sdk/openai-compatible': 2.0.41(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+diff --git a/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts b/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
+new file mode 100644
+index 000000000..046b4d914
+--- /dev/null
++++ b/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
+@@ -0,0 +1,75 @@
++import { getProviderByModel } from '@renderer/services/AssistantService'
++import type { FileMetadata, Model, Provider } from '@renderer/types'
++import { FILE_TYPE } from '@renderer/types'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++vi.mock('@logger', () => ({
++  loggerService: {
++    withContext: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() })
++  }
++}))
++
++vi.mock('@renderer/services/AssistantService', () => ({
++  getProviderByModel: vi.fn(),
++  getAssistantSettings: vi.fn(),
++  getDefaultAssistant: vi.fn(() => ({ id: 'default', name: 'Default', settings: {} }))
++}))
++
++vi.mock('../modelCapabilities', () => ({
++  getFileSizeLimit: vi.fn(() => Infinity),
++  supportsImageInput: vi.fn(() => false),
++  supportsLargeFileUpload: vi.fn(() => false)
++}))
++
++import { convertFileBlockToFilePart } from '../fileProcessor'
++
++const model: Model = { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'clewdr', group: 'clewdr' }
++const file: FileMetadata = {
++  id: 'archive',
++  name: 'archive.zip',
++  origin_name: 'project.zip',
++  path: '/tmp/project.zip',
++  size: 4,
++  ext: '.zip',
++  type: FILE_TYPE.OTHER,
++  created_at: '2026-07-15T00:00:00.000Z',
++  count: 1
++}
++
++describe('fileProcessor Clewdr support', () => {
++  beforeEach(() => {
++    Object.defineProperty(globalThis, 'window', {
++      configurable: true,
++      value: {
++        api: {
++          file: {
++            base64File: vi.fn().mockResolvedValue({ data: 'UEsDBA==', mime: 'application/zip' })
++          }
++        }
++      }
++    })
++  })
++
++  it('converts any Clewdr attachment to a native file part', async () => {
++    vi.mocked(getProviderByModel).mockReturnValue({ id: 'clewdr', type: 'clewdr' } as Provider)
++
++    const result = await convertFileBlockToFilePart({ file } as Parameters<typeof convertFileBlockToFilePart>[0], model)
++
++    expect(window.api.file.base64File).toHaveBeenCalledWith('archive.zip')
++    expect(result).toEqual({
++      type: 'file',
++      data: 'UEsDBA==',
++      mediaType: 'application/zip',
++      filename: 'project.zip'
++    })
++  })
++
++  it('keeps unknown file types non-native for other providers', async () => {
++    vi.mocked(getProviderByModel).mockReturnValue({ id: 'openai', type: 'openai' } as Provider)
++
++    const result = await convertFileBlockToFilePart({ file } as Parameters<typeof convertFileBlockToFilePart>[0], model)
++
++    expect(result).toBeNull()
++    expect(window.api.file.base64File).not.toHaveBeenCalled()
++  })
++})
+diff --git a/src/renderer/src/aiCore/prepareParams/fileProcessor.ts b/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
+index 62f9fc2a9..13416d0d5 100644
+--- a/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
++++ b/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
+@@ -203,6 +203,17 @@ export async function convertFileBlockToFilePart(fileBlock: FileMessageBlock, mo
+   const fileSizeLimit = getFileSizeLimit(model, file.type)
+ 
+   try {
++    const provider = getProviderByModel(model)
++    if (getAiSdkProviderId(provider) === 'clewdr') {
++      const base64Data = await window.api.file.base64File(file.id + file.ext)
++      return {
++        type: 'file',
++        data: base64Data.data,
++        mediaType: base64Data.mime,
++        filename: file.origin_name
++      }
++    }
++
+     // 处理PDF文档（始终生成 FilePart，由下游插件处理兼容性）
+     if (file.type === FILE_TYPE.DOCUMENT && file.ext === '.pdf') {
+       // 检查文件大小限制
+diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+new file mode 100644
+index 000000000..589c2235c
+--- /dev/null
++++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+@@ -0,0 +1,150 @@
++import { createAnthropic } from '@ai-sdk/anthropic'
++import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider'
++import { describe, expect, it } from 'vitest'
++
++import { createClewdr } from '../custom/clewdr-provider'
++
++interface CapturedRequest {
++  body: unknown
++}
++
++async function captureWithFetch(
++  run: (fetch: typeof globalThis.fetch) => PromiseLike<unknown>
++): Promise<CapturedRequest> {
++  let body: unknown
++  const fetch = ((_url: RequestInfo | URL, init?: RequestInit) => {
++    body = typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body
++    return Promise.resolve(new Response('{}', { status: 200 }))
++  }) as typeof globalThis.fetch
++
++  try {
++    await run(fetch)
++  } catch (error) {
++    if (body === undefined) throw error
++  }
++  return { body }
++}
++
++function createFilePrompt(filename?: string): LanguageModelV3CallOptions {
++  return {
++    prompt: [
++      {
++        role: 'user',
++        content: [
++          {
++            type: 'file',
++            data: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
++            mediaType: 'application/zip',
++            ...(filename !== undefined && { filename })
++          }
++        ]
++      }
++    ]
++  }
++}
++
++const textPrompt: LanguageModelV3CallOptions = {
++  prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
++}
++
++describe('Clewdr Anthropic compatibility', () => {
++  it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
++    const request = await captureWithFetch((fetch) =>
++      createClewdr({ apiKey: 'test', baseURL: 'http://127.0.0.1:8484/v1', fetch })
++        .languageModel('claude-sonnet-4-6')
++        .doStream(createFilePrompt('project.zip'))
++    )
++
++    expect(request.body).toMatchObject({
++      messages: [
++        {
++          content: [
++            {
++              type: 'document',
++              source: { type: 'base64', media_type: 'application/zip', data: 'UEsDBA==' },
++              title: 'project.zip'
++            }
++          ]
++        }
++      ]
++    })
++  })
++
++  it('uses a fallback title when a file has no filename', async () => {
++    const request = await captureWithFetch((fetch) =>
++      createClewdr({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(createFilePrompt())
++    )
++
++    expect(request.body).toMatchObject({ messages: [{ content: [{ title: 'file' }] }] })
++  })
++
++  it('keeps arbitrary MIME rejection for the official Anthropic provider', async () => {
++    await expect(
++      captureWithFetch((fetch) =>
++        createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(createFilePrompt())
++      )
++    ).rejects.toThrow('media type: application/zip')
++  })
++
++  it('ignores unsupported proxy metadata events', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response('data: {"type":"conversation_ready"}\n\n', {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++    const result = await createClewdr({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(textPrompt)
++    const chunks: LanguageModelV3StreamPart[] = []
++    const reader = result.stream.getReader()
++    while (true) {
++      const { done, value } = await reader.read()
++      if (done) break
++      chunks.push(value)
++    }
++
++    expect(chunks.filter((chunk) => chunk.type === 'error')).toEqual([])
++  })
++
++  it('preserves stream validation for the official Anthropic provider', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response('data: {"type":"conversation_ready"}\n\n', {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++
++    await expect(
++      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(textPrompt)
++    ).rejects.toThrow('No matching discriminator')
++  })
++
++  it('keeps unknown-model max token compatibility out of the official Anthropic provider', async () => {
++    const clewdrRequest = await captureWithFetch((fetch) =>
++      createClewdr({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
++    )
++    const anthropicRequest = await captureWithFetch((fetch) =>
++      createAnthropic({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
++    )
++
++    expect(clewdrRequest.body).not.toMatchObject({ max_tokens: expect.any(Number) })
++    expect(anthropicRequest.body).toMatchObject({ max_tokens: expect.any(Number) })
++  })
++
++  it('keeps explicit disabled thinking out of the official Anthropic provider', async () => {
++    const options: LanguageModelV3CallOptions = {
++      ...textPrompt,
++      providerOptions: { anthropic: { thinking: { type: 'disabled' } } }
++    }
++    const clewdrRequest = await captureWithFetch((fetch) =>
++      createClewdr({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
++    )
++    const anthropicRequest = await captureWithFetch((fetch) =>
++      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
++    )
++
++    expect(clewdrRequest.body).toMatchObject({ thinking: { type: 'disabled' } })
++    expect(anthropicRequest.body).not.toMatchObject({ thinking: { type: 'disabled' } })
++  })
++})
+diff --git a/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts b/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
+index 2f1a6f007..134670a23 100644
+--- a/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
++++ b/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
+@@ -118,6 +118,12 @@ describe('Integrated Provider Registry', () => {
+       expect(result).toBe('google')
+     })
+ 
++    it('should resolve a user-defined Clewdr provider by type', () => {
++      const provider = createTestProvider('local-clewdr', 'clewdr')
++      const result = getAiSdkProviderId(provider)
++      expect(result).toBe('clewdr')
++    })
++
+     it('should fallback to provider.id for unknown providers', () => {
+       const unknownProvider = createTestProvider('unknown-provider', 'unknown-type')
+       const result = getAiSdkProviderId(unknownProvider)
+diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
+new file mode 100644
+index 000000000..78b21b6f1
+--- /dev/null
++++ b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
+@@ -0,0 +1,7 @@
++import { type AnthropicProvider, type AnthropicProviderSettings, createAnthropic } from '@ai-sdk/anthropic'
++
++export type ClewdrProviderSettings = AnthropicProviderSettings
++
++export function createClewdr(options: ClewdrProviderSettings = {}): AnthropicProvider {
++  return createAnthropic({ ...options, name: 'clewdr' })
++}
+diff --git a/src/renderer/src/aiCore/provider/extensions/index.ts b/src/renderer/src/aiCore/provider/extensions/index.ts
+index 76de2c0b1..c42a44b22 100644
+--- a/src/renderer/src/aiCore/provider/extensions/index.ts
++++ b/src/renderer/src/aiCore/provider/extensions/index.ts
+@@ -5,6 +5,7 @@
+ 
+ import type { AmazonBedrockProvider } from '@ai-sdk/amazon-bedrock'
+ import { type AmazonBedrockProviderSettings, createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
++import type { AnthropicProvider } from '@ai-sdk/anthropic'
+ import { type CerebrasProviderSettings, createCerebras } from '@ai-sdk/cerebras'
+ import { createGateway, type GatewayProviderSettings } from '@ai-sdk/gateway'
+ import { createVertexAnthropic, type GoogleVertexAnthropicProvider } from '@ai-sdk/google-vertex/anthropic/edge'
+@@ -26,8 +27,15 @@ import { createOllama } from 'ollama-ai-provider-v2'
+ import { createVoyage, type VoyageProviderSettings } from 'voyage-ai-provider'
+ 
+ import { type AihubmixProviderSettings, createAihubmix } from '../custom/aihubmix-provider'
++import { type ClewdrProviderSettings, createClewdr } from '../custom/clewdr-provider'
+ import { createNewApi, type NewApiProviderSettings } from '../custom/newapi-provider'
+ 
++export const ClewdrExtension = ProviderExtension.create({
++  name: 'clewdr',
++  supportsImageGeneration: false,
++  create: createClewdr
++} as const satisfies ProviderExtensionConfig<ClewdrProviderSettings, AnthropicProvider, 'clewdr'>)
++
+ /**
+  * Google Vertex AI Extension
+  */
+@@ -217,6 +225,7 @@ export const VoyageExtension = ProviderExtension.create({
+  * 所有项目特定的 Extensions
+  */
+ export const extensions = [
++  ClewdrExtension,
+   GoogleVertexExtension,
+   GoogleVertexAnthropicExtension,
+   GitHubCopilotExtension,
+diff --git a/src/renderer/src/config/models/__tests__/clewdr.test.ts b/src/renderer/src/config/models/__tests__/clewdr.test.ts
+new file mode 100644
+index 000000000..f1c58db3c
+--- /dev/null
++++ b/src/renderer/src/config/models/__tests__/clewdr.test.ts
+@@ -0,0 +1,15 @@
++import { describe, expect, it } from 'vitest'
++
++import { SYSTEM_MODELS } from '../default'
++
++describe('Clewdr provider defaults', () => {
++  it('uses the model list exposed by Clewdr', () => {
++    expect(SYSTEM_MODELS.clewdr).toHaveLength(40)
++    expect(SYSTEM_MODELS.clewdr).toEqual(
++      expect.arrayContaining([
++        expect.objectContaining({ id: 'claude-sonnet-5', provider: 'clewdr' }),
++        expect.objectContaining({ id: 'claude-opus-4-8-thinking', provider: 'clewdr' })
++      ])
++    )
++  })
++})
+diff --git a/src/renderer/src/config/models/default.ts b/src/renderer/src/config/models/default.ts
+index ce7fd0d14..a77ff8b9f 100644
+--- a/src/renderer/src/config/models/default.ts
++++ b/src/renderer/src/config/models/default.ts
+@@ -7,6 +7,49 @@ export const qwenModel: Model = {
+   group: 'Qwen'
+ }
+ 
++const CLEWDR_MODEL_IDS = [
++  'claude-3-7-sonnet-20250219',
++  'claude-3-7-sonnet-20250219-thinking',
++  'claude-sonnet-4-20250514',
++  'claude-sonnet-4-20250514-thinking',
++  'claude-sonnet-4-20250514-1M',
++  'claude-sonnet-4-20250514-1M-thinking',
++  'claude-sonnet-4-5-20250929',
++  'claude-sonnet-4-5-20250929-thinking',
++  'claude-sonnet-4-5',
++  'claude-sonnet-4-5-thinking',
++  'claude-sonnet-4-5-20250929-1M',
++  'claude-sonnet-4-5-20250929-1M-thinking',
++  'claude-sonnet-4-6',
++  'claude-sonnet-4-6-thinking',
++  'claude-sonnet-4-6-1M',
++  'claude-sonnet-4-6-1M-thinking',
++  'claude-sonnet-5',
++  'claude-sonnet-5-thinking',
++  'claude-haiku-4-5-20251001',
++  'claude-haiku-4-5-20251001-thinking',
++  'claude-haiku-4-5',
++  'claude-haiku-4-5-thinking',
++  'claude-opus-4-20250514',
++  'claude-opus-4-20250514-thinking',
++  'claude-opus-4-1-20250805',
++  'claude-opus-4-1-20250805-thinking',
++  'claude-opus-4-1',
++  'claude-opus-4-1-thinking',
++  'claude-opus-4-5-20251101',
++  'claude-opus-4-5-20251101-thinking',
++  'claude-opus-4-5',
++  'claude-opus-4-5-thinking',
++  'claude-opus-4-6',
++  'claude-opus-4-6-thinking',
++  'claude-opus-4-6-1M',
++  'claude-opus-4-6-1M-thinking',
++  'claude-opus-4-7',
++  'claude-opus-4-7-thinking',
++  'claude-opus-4-8',
++  'claude-opus-4-8-thinking'
++] as const
++
+ export const SYSTEM_MODELS: Record<SystemProviderId | 'defaultModel', Model[]> = {
+   defaultModel: [
+     // Default assistant model
+@@ -416,6 +459,7 @@ export const SYSTEM_MODELS: Record<SystemProviderId | 'defaultModel', Model[]> =
+       group: 'Claude 4.5'
+     }
+   ],
++  clewdr: CLEWDR_MODEL_IDS.map((id) => ({ id, name: id, provider: 'clewdr', group: 'Clewdr' })),
+   deepseek: [
+     {
+       id: 'deepseek-v4-flash',
+diff --git a/src/renderer/src/config/providers.ts b/src/renderer/src/config/providers.ts
+index 7a0d90e57..6bdd710c8 100644
+--- a/src/renderer/src/config/providers.ts
++++ b/src/renderer/src/config/providers.ts
+@@ -389,6 +389,16 @@ export const SYSTEM_PROVIDERS_CONFIG: Record<SystemProviderId, SystemProvider> =
+     isSystem: true,
+     enabled: false
+   },
++  clewdr: {
++    id: 'clewdr',
++    name: 'ClewdR',
++    type: 'clewdr',
++    apiKey: '',
++    apiHost: 'http://127.0.0.1:8484/v1',
++    models: SYSTEM_MODELS.clewdr,
++    isSystem: true,
++    enabled: false
++  },
+   openai: {
+     id: 'openai',
+     name: 'OpenAI',
+@@ -766,6 +776,7 @@ export const PROVIDER_LOGO_MAP: AtLeast<SystemProviderId, string> = {
+   modelscope: ModelScopeProviderLogo,
+   xirang: XirangProviderLogo,
+   anthropic: AnthropicProviderLogo,
++  clewdr: AnthropicProviderLogo,
+   aihubmix: AiHubMixProviderLogo,
+   burncloud: BurnCloudProviderLogo,
+   gemini: GoogleProviderLogo,
+@@ -1222,6 +1233,15 @@ export const PROVIDER_URLS: Record<SystemProviderId, ProviderUrls> = {
+       models: 'https://docs.anthropic.com/en/docs/about-claude/models'
+     }
+   },
++  clewdr: {
++    api: {
++      url: 'http://127.0.0.1:8484/v1'
++    },
++    websites: {
++      official: 'https://github.com/Xerxes-2/clewdr',
++      docs: 'https://github.com/Xerxes-2/clewdr/wiki'
++    }
++  },
+   grok: {
+     api: {
+       url: 'https://api.x.ai'
+diff --git a/src/renderer/src/types/provider.ts b/src/renderer/src/types/provider.ts
+index 1cfee6538..0bc15c66e 100644
+--- a/src/renderer/src/types/provider.ts
++++ b/src/renderer/src/types/provider.ts
+@@ -8,6 +8,7 @@ export const ProviderTypeSchema = z.enum([
+   'openai',
+   'openai-response',
+   'anthropic',
++  'clewdr',
+   'gemini',
+   'azure-openai',
+   'vertexai',
+@@ -160,6 +161,7 @@ export const SystemProviderIdSchema = z.enum([
+   'new-api',
+   'lmstudio',
+   'anthropic',
++  'clewdr',
+   'openai',
+   'azure-openai',
+   'gemini',
+@@ -233,6 +235,7 @@ export const SystemProviderIds = {
+   'new-api': 'new-api',
+   lmstudio: 'lmstudio',
+   anthropic: 'anthropic',
++  clewdr: 'clewdr',
+   openai: 'openai',
+   'azure-openai': 'azure-openai',
+   gemini: 'gemini',
+-- 
+2.43.0
+

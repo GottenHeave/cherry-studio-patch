@@ -1,7 +1,7 @@
-From d5d05407a788b9ba5fc034082b1293705b678d93 Mon Sep 17 00:00:00 2001
+From e0fb59045a4b14aacb61efe1ef485906d42edd99 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Mon, 13 Jul 2026 21:12:01 +0000
-Subject: [PATCH] feat: allow all chat attachment files
+Subject: [PATCH 1/2] feat: allow all chat attachment files
 
 ---
  .../home/Inputbar/hooks/useFileDragDrop.ts    | 15 +------
@@ -10,7 +10,7 @@ Subject: [PATCH] feat: allow all chat attachment files
  3 files changed, 18 insertions(+), 65 deletions(-)
 
 diff --git a/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts b/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
-index a50e715..e25affe 100644
+index a50e7154b..e25affef2 100644
 --- a/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
 +++ b/src/renderer/src/pages/home/Inputbar/hooks/useFileDragDrop.ts
 @@ -1,7 +1,6 @@
@@ -43,7 +43,7 @@ index a50e715..e25affe 100644
        }
      },
 diff --git a/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx b/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
-index 1cc7458..00dc129 100644
+index 1cc74580a..00dc1297d 100644
 --- a/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
 +++ b/src/renderer/src/pages/home/Inputbar/tools/components/AttachmentButton.tsx
 @@ -3,7 +3,7 @@ import { QuickPanelReservedSymbol, useQuickPanel } from '@renderer/components/Qu
@@ -109,7 +109,7 @@ index 1cc7458..00dc129 100644
    const openKnowledgeFileList = useCallback(
      (base: KnowledgeBase) => {
 diff --git a/src/renderer/src/services/PasteService.ts b/src/renderer/src/services/PasteService.ts
-index d12a736..93ba0db 100644
+index d12a73648..93ba0dba2 100644
 --- a/src/renderer/src/services/PasteService.ts
 +++ b/src/renderer/src/services/PasteService.ts
 @@ -1,6 +1,5 @@
