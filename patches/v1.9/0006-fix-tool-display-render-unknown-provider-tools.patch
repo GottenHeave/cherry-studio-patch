@@ -1,0 +1,102 @@
+From 37659b13dfafda87b3c7ad796a0aca1b2a622bf2 Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Wed, 15 Jul 2026 18:26:50 +0000
+Subject: [PATCH] fix(tool-display): render unknown provider tools
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ .../pages/home/Messages/Tools/MessageTool.tsx | 14 +---------
+ .../__tests__/MessageAgentTools.test.tsx      | 27 +++++++++++++++++++
+ 2 files changed, 28 insertions(+), 13 deletions(-)
+
+diff --git a/src/renderer/src/pages/home/Messages/Tools/MessageTool.tsx b/src/renderer/src/pages/home/Messages/Tools/MessageTool.tsx
+index cec252d..bfc715d 100644
+--- a/src/renderer/src/pages/home/Messages/Tools/MessageTool.tsx
++++ b/src/renderer/src/pages/home/Messages/Tools/MessageTool.tsx
+@@ -2,7 +2,6 @@ import type { NormalToolResponse } from '@renderer/types'
+ import type { ToolMessageBlock } from '@renderer/types/newMessage'
+ 
+ import { MessageAgentTools } from './MessageAgentTools'
+-import { AgentToolsType } from './MessageAgentTools/types'
+ import { MessageKnowledgeSearchToolTitle } from './MessageKnowledgeSearch'
+ import { MessageMemorySearchToolTitle } from './MessageMemorySearch'
+ import { MessageWebSearchToolTitle } from './MessageWebSearch'
+@@ -11,15 +10,6 @@ interface Props {
+   block: ToolMessageBlock
+ }
+ const builtinToolsPrefix = 'builtin_'
+-const agentMcpToolsPrefix = 'mcp__'
+-const agentTools = Object.values(AgentToolsType)
+-
+-const isAgentTool = (toolName: AgentToolsType) => {
+-  if (agentTools.includes(toolName) || toolName.startsWith(agentMcpToolsPrefix)) {
+-    return true
+-  }
+-  return false
+-}
+ 
+ const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null => {
+   let toolName = toolResponse.tool.name
+@@ -37,10 +27,8 @@ const ChooseTool = (toolResponse: NormalToolResponse): React.ReactNode | null =>
+       default:
+         return null
+     }
+-  } else if (isAgentTool(toolName as AgentToolsType)) {
+-    return <MessageAgentTools toolResponse={toolResponse} />
+   }
+-  return null
++  return <MessageAgentTools toolResponse={toolResponse} />
+ }
+ 
+ export default function MessageTool({ block }: Props) {
+diff --git a/src/renderer/src/pages/home/Messages/Tools/__tests__/MessageAgentTools.test.tsx b/src/renderer/src/pages/home/Messages/Tools/__tests__/MessageAgentTools.test.tsx
+index d5c73a2..bb9bc28 100644
+--- a/src/renderer/src/pages/home/Messages/Tools/__tests__/MessageAgentTools.test.tsx
++++ b/src/renderer/src/pages/home/Messages/Tools/__tests__/MessageAgentTools.test.tsx
+@@ -1,9 +1,11 @@
+ import type { NormalToolResponse } from '@renderer/types'
++import { MessageBlockStatus, MessageBlockType, type ToolMessageBlock } from '@renderer/types/newMessage'
+ import { render, screen } from '@testing-library/react'
+ import { parse as parsePartialJson } from 'partial-json'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ 
+ import { isValidAgentToolsType, MessageAgentTools } from '../MessageAgentTools'
++import MessageTool from '../MessageTool'
+ 
+ vi.mock('@renderer/services/AssistantService', () => ({
+   getDefaultAssistant: vi.fn(() => ({
+@@ -295,6 +297,31 @@ describe('MessageAgentTools', () => {
+   })
+ 
+   describe('completed tool rendering', () => {
++    it('renders unknown provider tool input and output', () => {
++      const toolResponse = createToolResponse({
++        tool: { id: 'view', name: 'view', description: 'View a file', type: 'provider' },
++        status: 'done',
++        arguments: { path: '/tmp/report.txt' },
++        response: 'file contents'
++      })
++      const block: ToolMessageBlock = {
++        id: 'tool-block-1',
++        messageId: 'message-1',
++        type: MessageBlockType.TOOL,
++        createdAt: new Date().toISOString(),
++        status: MessageBlockStatus.SUCCESS,
++        toolId: toolResponse.id,
++        toolName: toolResponse.tool.name,
++        metadata: { rawMcpToolResponse: toolResponse }
++      }
++
++      render(<MessageTool block={block} />)
++
++      expect(screen.getByText('view')).toBeInTheDocument()
++      expect(screen.getByText('/tmp/report.txt')).toBeInTheDocument()
++      expect(screen.getByText('file contents')).toBeInTheDocument()
++    })
++
+     it('should render tool with full arguments when done', () => {
+       const toolResponse = createToolResponse({
+         tool: { id: 'Read', name: 'Read', description: 'Read a file', type: 'provider' },
+-- 
+2.43.0
+

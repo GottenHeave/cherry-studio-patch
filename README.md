@@ -11,6 +11,9 @@ official Anthropic adapter. Tool progress deltas remain available without
 modifying assistant text or tool arguments, and raw chunks are emitted once
 when callers request them explicitly. Focused tests also verify that a Clewdr
 stream network error does not repeat the HTTP request when retries are disabled.
+Provider tools without a dedicated Cherry renderer use the generic tool card,
+which shows the tool name, input arguments, and execution result instead of an
+empty expanded dropdown.
 The v1.9 patchset seeds the model list exposed by Clewdr's `/v1/models`
 endpoint.
 
