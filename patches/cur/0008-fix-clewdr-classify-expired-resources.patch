@@ -1,0 +1,321 @@
+From 88c571031d745f616fd5bb3a93f0bb81be9fa3a4 Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Thu, 16 Jul 2026 17:58:19 +0000
+Subject: [PATCH] fix(clewdr): classify expired resources
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ .../custom/__tests__/clewdrProvider.test.ts   | 98 ++++++++++++++++++-
+ src/main/ai/provider/custom/clewdrProvider.ts | 86 ++++++++++++----
+ 2 files changed, 163 insertions(+), 21 deletions(-)
+
+diff --git a/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts b/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts
+index 341de5c..4593638 100644
+--- a/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts
++++ b/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts
+@@ -214,7 +214,7 @@ describe('Clewdr request boundary', () => {
+         await uploadBlocked
+         return new Response(
+           JSON.stringify({
+-            id: `file-${uploads}`,
++            id: `file_clewdr_v1_${uploads}`,
+             type: 'file',
+             filename: 'project.zip',
+             mime_type: 'application/zip',
+@@ -243,7 +243,7 @@ describe('Clewdr request boundary', () => {
+     expect(uploads).toBe(3)
+   })
+ 
+-  it('surfaces 409 without reset and resets then retries a 410 exactly once', async () => {
++  it('surfaces 409 without reset', async () => {
+     const conflict = vi.fn(
+       async () =>
+         new Response(
+@@ -260,8 +260,11 @@ describe('Clewdr request boundary', () => {
+     })
+     expect(conflictResponse.status).toBe(409)
+     expect(conflict).toHaveBeenCalledTimes(1)
++  })
+ 
++  it('resets then retries a nested conversation_expired 410 exactly once with staged JSON', async () => {
+     const calls: Array<{ url: string; body: string }> = []
++    let messageCount = 0
+     const expired = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+       calls.push({ url: String(input), body: String(init?.body) })
+       if (String(input).endsWith('/files')) {
+@@ -277,6 +280,8 @@ describe('Clewdr request boundary', () => {
+         )
+       }
+       if (String(input).endsWith('/sessions/reset')) return new Response('{}', { status: 200 })
++      messageCount += 1
++      if (messageCount === 2) return okStream()
+       return new Response(
+         JSON.stringify({ type: 'error', error: { type: 'conversation_expired', message: 'expired' } }),
+         { status: 410 }
+@@ -288,7 +293,7 @@ describe('Clewdr request boundary', () => {
+       body: JSON.stringify(makeBody())
+     })
+ 
+-    expect(expiredResponse.status).toBe(410)
++    expect(expiredResponse.status).toBe(200)
+     expect(calls.map((call) => call.url)).toEqual([
+       `${normalizedEndpoint}/files`,
+       messagesUrl,
+@@ -299,4 +304,91 @@ describe('Clewdr request boundary', () => {
+     expect(calls[1].body).not.toContain('UEsDBA==')
+     expect(calls[3].body).toBe(calls[1].body)
+   })
++
++  it('reuploads an expired staged file, updates the cache, and retries without resetting', async () => {
++    const calls: Array<{ url: string; body: string }> = []
++    let uploadCount = 0
++    let messageCount = 0
++    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      calls.push({ url, body: String(init?.body) })
++      if (url.endsWith('/files')) {
++        uploadCount += 1
++        return new Response(
++          JSON.stringify({
++            id: `file_clewdr_v1_upload_${uploadCount}`,
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      messageCount += 1
++      if (messageCount <= 2) {
++        return new Response(
++          JSON.stringify({ type: 'error', error: { type: 'file_expired', message: 'Staged file has expired' } }),
++          { status: 410 }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++    const fetch = makeFetch(upstream)
++
++    const firstResponse = await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    const secondResponse = await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++
++    expect(firstResponse.status).toBe(410)
++    expect(secondResponse.status).toBe(200)
++    expect(uploadCount).toBe(2)
++    expect(messageCount).toBe(3)
++    expect(calls.some((call) => call.url.endsWith('/sessions/reset'))).toBe(false)
++    const messageBodies = calls.filter((call) => call.url === messagesUrl).map((call) => call.body)
++    expect(messageBodies).toHaveLength(3)
++    expect(messageBodies.every((body) => !body.includes('UEsDBA=='))).toBe(true)
++    expect(messageBodies[0]).toContain('file_clewdr_v1_upload_1')
++    expect(messageBodies[1]).toContain('file_clewdr_v1_upload_2')
++    expect(messageBodies[2]).toBe(messageBodies[1])
++  })
++
++  it.each([
++    ['flat conversation_expired', { type: 'conversation_expired' }],
++    ['unknown nested error', { type: 'error', error: { type: 'other_gone', message: 'gone' } }]
++  ])('returns %s 410 envelopes unchanged without recovery', async (_name, envelope) => {
++    const upstream = vi.fn(
++      async () => new Response(JSON.stringify(envelope), { status: 410 })
++    ) as typeof globalThis.fetch
++    const response = await makeFetch(upstream)(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] })
++    })
++
++    expect(response.status).toBe(410)
++    await expect(response.json()).resolves.toEqual(envelope)
++    expect(upstream).toHaveBeenCalledTimes(1)
++  })
++
++  it('rejects upload responses whose id is outside the staged file namespace', async () => {
++    const upstream = vi.fn(async (input: RequestInfo | URL) => {
++      if (String(input).endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_other_abc',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++
++    await expect(
++      makeFetch(upstream)(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    ).rejects.toThrow('invalid response')
++    expect(upstream).toHaveBeenCalledTimes(1)
++  })
+ })
+diff --git a/src/main/ai/provider/custom/clewdrProvider.ts b/src/main/ai/provider/custom/clewdrProvider.ts
+index 5834116..78bd105 100644
+--- a/src/main/ai/provider/custom/clewdrProvider.ts
++++ b/src/main/ai/provider/custom/clewdrProvider.ts
+@@ -41,6 +41,16 @@ interface StagedFileResponse {
+ 
+ type JsonObject = Record<string, unknown>
+ 
++interface PreparedMessageBody {
++  body: string
++  uploadCacheKeys: Set<string>
++}
++
++interface StagedFileReference {
++  cacheKey: string
++  fileId: string
++}
++
+ export function normalizeClewdrEndpoint(endpoint: string): string {
+   const url = new URL(endpoint)
+   url.search = ''
+@@ -79,10 +89,7 @@ export function createClewdrFetch(settings: ClewdrFetchSettings): typeof globalT
+   return async (input, init) => {
+     if (!isMessagesRequest(input) || typeof init?.body !== 'string') return settings.fetch(input, init)
+ 
+-    const parsed: unknown = JSON.parse(init.body)
+-    if (!isJsonObject(parsed)) return settings.fetch(input, init)
+-
+-    await rewriteFileSources(parsed, {
++    const requestContext: RewriteContext = {
+       endpoint,
+       fetchIdentity,
+       principalDigest,
+@@ -90,19 +97,27 @@ export function createClewdrFetch(settings: ClewdrFetchSettings): typeof globalT
+       headers: mergeHeaders(input, init.headers),
+       signal: init.signal,
+       fetch: settings.fetch
+-    })
+-    parsed.metadata = {
+-      ...(isJsonObject(parsed.metadata) ? parsed.metadata : {}),
+-      user_id: wireSessionId
+     }
+-    delete parsed.tools
+-    delete parsed.tool_choice
++    const prepared = await prepareMessageBody(init.body, requestContext)
++    if (!prepared) return settings.fetch(input, init)
+ 
+     const messageHeaders = mergeHeaders(input, init.headers)
+     messageHeaders.delete('content-length')
+-    const rewrittenInit: RequestInit = { ...init, body: JSON.stringify(parsed), headers: messageHeaders }
++    const rewrittenInit: RequestInit = { ...init, body: prepared.body, headers: messageHeaders }
+     const response = await settings.fetch(input, rewrittenInit)
+     if (response.status !== 410) return response
++    const errorType = await readClewdrErrorType(response)
++
++    if (errorType === 'file_expired') {
++      if (prepared.uploadCacheKeys.size === 0) return response
++      prepared.uploadCacheKeys.forEach((cacheKey) => uploadCache.delete(cacheKey))
++      const restaged = await prepareMessageBody(init.body, requestContext)
++      if (!restaged) return response
++      if (response.body) await response.body.cancel().catch(() => undefined)
++      return settings.fetch(input, { ...rewrittenInit, body: restaged.body })
++    }
++
++    if (errorType !== 'conversation_expired') return response
+     if (response.body) await response.body.cancel().catch(() => undefined)
+ 
+     const resetHeaders = new Headers(messageHeaders)
+@@ -130,8 +145,24 @@ interface RewriteContext {
+   fetch: typeof globalThis.fetch
+ }
+ 
+-async function rewriteFileSources(body: JsonObject, context: RewriteContext): Promise<void> {
+-  if (!Array.isArray(body.messages)) return
++async function prepareMessageBody(body: string, context: RewriteContext): Promise<PreparedMessageBody | undefined> {
++  const parsed: unknown = JSON.parse(body)
++  if (!isJsonObject(parsed)) return undefined
++
++  const uploadCacheKeys = await rewriteFileSources(parsed, context)
++  parsed.metadata = {
++    ...(isJsonObject(parsed.metadata) ? parsed.metadata : {}),
++    user_id: context.wireSessionId
++  }
++  delete parsed.tools
++  delete parsed.tool_choice
++
++  return { body: JSON.stringify(parsed), uploadCacheKeys }
++}
++
++async function rewriteFileSources(body: JsonObject, context: RewriteContext): Promise<Set<string>> {
++  const uploadCacheKeys = new Set<string>()
++  if (!Array.isArray(body.messages)) return uploadCacheKeys
+ 
+   const rewrites: Promise<void>[] = []
+   for (const message of body.messages) {
+@@ -145,16 +176,23 @@ async function rewriteFileSources(body: JsonObject, context: RewriteContext): Pr
+ 
+       const filename = normalizeFilename(typeof part.title === 'string' ? part.title : 'file')
+       rewrites.push(
+-        stageFile(source.data, filename, source.media_type, context).then((fileId) => {
+-          part.source = { type: 'file', file_id: fileId }
++        stageFile(source.data, filename, source.media_type, context).then((staged) => {
++          part.source = { type: 'file', file_id: staged.fileId }
++          uploadCacheKeys.add(staged.cacheKey)
+         })
+       )
+     }
+   }
+   await Promise.all(rewrites)
++  return uploadCacheKeys
+ }
+ 
+-function stageFile(data: string, filename: string, mediaType: string, context: RewriteContext): Promise<string> {
++async function stageFile(
++  data: string,
++  filename: string,
++  mediaType: string,
++  context: RewriteContext
++): Promise<StagedFileReference> {
+   const bytes = Buffer.from(data, 'base64')
+   const cacheKey = JSON.stringify([
+     context.fetchIdentity,
+@@ -169,7 +207,7 @@ function stageFile(data: string, filename: string, mediaType: string, context: R
+   if (cached) {
+     uploadCache.delete(cacheKey)
+     uploadCache.set(cacheKey, cached)
+-    return cached.promise
++    return { cacheKey, fileId: await cached.promise }
+   }
+ 
+   reserveUploadCacheEntry()
+@@ -187,7 +225,7 @@ function stageFile(data: string, filename: string, mediaType: string, context: R
+     )
+   }
+   uploadCache.set(cacheKey, entry)
+-  return entry.promise
++  return { cacheKey, fileId: await entry.promise }
+ }
+ 
+ async function uploadFile(
+@@ -254,6 +292,17 @@ function reserveUploadCacheEntry(): void {
+   uploadCache.delete(settled[0])
+ }
+ 
++async function readClewdrErrorType(response: Response): Promise<string | undefined> {
++  try {
++    const payload: unknown = await response.clone().json()
++    if (!isJsonObject(payload) || payload.type !== 'error' || !isJsonObject(payload.error)) return undefined
++    if (typeof payload.error.type !== 'string' || typeof payload.error.message !== 'string') return undefined
++    return payload.error.type
++  } catch {
++    return undefined
++  }
++}
++
+ function isMessagesRequest(input: RequestInfo | URL): boolean {
+   const url = input instanceof Request ? input.url : String(input)
+   try {
+@@ -271,6 +320,7 @@ function isStagedFileResponse(value: unknown): value is StagedFileResponse {
+   return (
+     isJsonObject(value) &&
+     typeof value.id === 'string' &&
++    value.id.startsWith('file_clewdr_v1_') &&
+     value.type === 'file' &&
+     typeof value.filename === 'string' &&
+     typeof value.mime_type === 'string' &&

@@ -1,0 +1,427 @@
+From ab605ad8b47f0594c3fc7769ec397bf376f939ac Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Thu, 16 Jul 2026 18:04:32 +0000
+Subject: [PATCH] fix(clewdr): classify expired resources
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ .../__tests__/clewdrCompatibility.test.ts     | 178 +++++++++++++++++-
+ .../aiCore/provider/custom/clewdr-request.ts  | 171 +++++++++++++----
+ 2 files changed, 307 insertions(+), 42 deletions(-)
+
+diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+index b850455..68b3c1e 100644
+--- a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
++++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+@@ -117,6 +117,28 @@ function createRawFileBody(filename = 'project.zip', mediaType = 'application/zi
+   })
+ }
+ 
++function createRawMultiFileBody() {
++  return JSON.stringify({
++    messages: [
++      {
++        role: 'user',
++        content: [
++          {
++            type: 'document',
++            source: { type: 'base64', media_type: 'application/zip', data: 'UEsDBA==' },
++            title: 'first.zip'
++          },
++          {
++            type: 'document',
++            source: { type: 'base64', media_type: 'application/octet-stream', data: 'AQIDBA==' },
++            title: 'second.bin'
++          }
++        ]
++      }
++    ]
++  })
++}
++
+ const toolUseBlockUpdate = {
+   type: 'content_block_delta',
+   index: 2,
+@@ -368,7 +390,7 @@ describe('Clewdr Anthropic compatibility', () => {
+     expect(urls).toEqual(['https://clewdr.example/v1/messages'])
+   })
+ 
+-  it('resets once on 410 and retries with the same staged reference', async () => {
++  it('resets once on nested conversation_expired and retries with the same staged JSON', async () => {
+     const requests: RecordedRequest[] = []
+     let messageCount = 0
+     const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+@@ -439,6 +461,160 @@ describe('Clewdr Anthropic compatibility', () => {
+     ])
+   })
+ 
++  it('invalidates every base64-backed file on file_expired and retries once without reset', async () => {
++    const calls: RecordedRequest[] = []
++    let uploadCount = 0
++    let messageCount = 0
++    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      calls.push({ url, init })
++      if (url.endsWith('/files')) {
++        uploadCount += 1
++        return new Response(
++          JSON.stringify({
++            id: `file_clewdr_v1_upload_${uploadCount}`,
++            type: 'file',
++            filename: 'file',
++            mime_type: 'application/octet-stream',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      messageCount += 1
++      if (messageCount <= 2) {
++        return new Response(
++          JSON.stringify({ type: 'error', error: { type: 'file_expired', message: 'Staged file has expired' } }),
++          { headers: { 'content-type': 'application/json' }, status: 410 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-file-expired',
++        sessionId: 'topic-file-expired'
++      }
++    )
++    const send = () =>
++      wrappedFetch('https://clewdr.example/v1/messages', { method: 'POST', body: createRawMultiFileBody() })
++
++    const expiredResponse = await send()
++    expect(expiredResponse.status).toBe(410)
++    await expect(expiredResponse.json()).resolves.toEqual({
++      type: 'error',
++      error: { type: 'file_expired', message: 'Staged file has expired' }
++    })
++    expect(uploadCount).toBe(4)
++    expect(messageCount).toBe(2)
++
++    const recoveredResponse = await send()
++    expect(recoveredResponse.status).toBe(200)
++    expect(uploadCount).toBe(4)
++    expect(messageCount).toBe(3)
++    expect(calls.some((call) => call.url.endsWith('/sessions/reset'))).toBe(false)
++    const messageBodies = calls.filter((call) => call.url.endsWith('/messages')).map((call) => String(call.init?.body))
++    expect(messageBodies).toHaveLength(3)
++    expect(messageBodies.every((body) => !body.includes('UEsDBA==') && !body.includes('AQIDBA=='))).toBe(true)
++    expect(messageBodies[0]).toContain('file_clewdr_v1_upload_1')
++    expect(messageBodies[0]).toContain('file_clewdr_v1_upload_2')
++    expect(messageBodies[1]).toContain('file_clewdr_v1_upload_3')
++    expect(messageBodies[1]).toContain('file_clewdr_v1_upload_4')
++    expect(messageBodies[2]).toBe(messageBodies[1])
++  })
++
++  it('returns file_expired unchanged when the request contains only file_id references', async () => {
++    const envelope = { type: 'error', error: { type: 'file_expired', message: 'Staged file has expired' } }
++    const fetch = vi.fn(
++      async () =>
++        new Response(JSON.stringify(envelope), { headers: { 'content-type': 'application/json' }, status: 410 })
++    ) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-file-reference',
++        sessionId: 'topic-file-reference'
++      }
++    )
++    const response = await wrappedFetch('https://clewdr.example/v1/messages', {
++      method: 'POST',
++      body: JSON.stringify({
++        messages: [
++          {
++            role: 'user',
++            content: [{ type: 'document', source: { type: 'file', file_id: 'file_clewdr_v1_existing' } }]
++          }
++        ]
++      })
++    })
++
++    expect(response.status).toBe(410)
++    await expect(response.json()).resolves.toEqual(envelope)
++    expect(fetch).toHaveBeenCalledTimes(1)
++  })
++
++  it.each([
++    ['flat conversation_expired', JSON.stringify({ type: 'conversation_expired' })],
++    ['unknown nested error', JSON.stringify({ type: 'error', error: { type: 'other_gone', message: 'gone' } })],
++    ['nested error without message', JSON.stringify({ type: 'error', error: { type: 'conversation_expired' } })],
++    ['malformed JSON', '{"type":"error"']
++  ])('returns %s 410 body unchanged and readable', async (_name, responseBody) => {
++    const fetch = vi.fn(async () => new Response(responseBody, { status: 410 })) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: `clewdr-unknown-${_name}`,
++        sessionId: `topic-unknown-${_name}`
++      }
++    )
++    const response = await wrappedFetch('https://clewdr.example/v1/messages', {
++      method: 'POST',
++      body: JSON.stringify({ messages: [] })
++    })
++
++    expect(response.status).toBe(410)
++    await expect(response.text()).resolves.toBe(responseBody)
++    expect(fetch).toHaveBeenCalledTimes(1)
++  })
++
++  it('rejects staged upload IDs outside the Clewdr v1 namespace', async () => {
++    const fetch = (async (input: RequestInfo | URL) => {
++      if (String(input).endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_other_abc',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-invalid-file-id',
++        sessionId: 'topic-invalid-file-id'
++      }
++    )
++
++    await expect(
++      wrappedFetch('https://clewdr.example/v1/messages', { method: 'POST', body: createRawFileBody() })
++    ).rejects.toThrow('invalid response')
++  })
++
+   it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
+     const request = await captureWithFetch((fetch) =>
+       createClewdr({ apiKey: 'test', baseURL: 'http://127.0.0.1:8484/v1', fetch })
+diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-request.ts b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+index 0a6dacc..639f36c 100644
+--- a/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
++++ b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+@@ -52,6 +52,36 @@ interface PendingFileRewrite {
+   filename: string
+ }
+ 
++interface PreparedMessageBody {
++  body: string
++  uploadCacheKeys: Set<string>
++}
++
++interface StagedFileReference {
++  cacheKey: string
++  fileId: string
++}
++
++interface ClewdrErrorDetails {
++  message?: unknown
++  type?: unknown
++}
++
++interface ClewdrErrorEnvelope {
++  error?: ClewdrErrorDetails
++  type?: unknown
++}
++
++interface RewriteContext {
++  endpoint: string
++  fetch: typeof globalThis.fetch
++  headers: Headers
++  principal: string
++  providerInstanceId: string
++  sessionId: string
++  signal: AbortSignal | null | undefined
++}
++
+ export interface ClewdrProviderContextSettings extends ClewdrRequestContext {
+   baseURL: string
+   providerInstanceId: string
+@@ -151,6 +181,7 @@ async function parseStagedFileResponse(response: Response): Promise<StagedFileRe
+   const value = (await response.json()) as Partial<StagedFileResponse>
+   if (
+     typeof value.id !== 'string' ||
++    !value.id.startsWith('file_clewdr_v1_') ||
+     value.type !== 'file' ||
+     typeof value.filename !== 'string' ||
+     typeof value.mime_type !== 'string' ||
+@@ -161,6 +192,80 @@ async function parseStagedFileResponse(response: Response): Promise<StagedFileRe
+   return value as StagedFileResponse
+ }
+ 
++async function stageFile(
++  source: ClewdrFileSource,
++  filename: string,
++  context: RewriteContext
++): Promise<StagedFileReference> {
++  const bytes = decodeBase64(source.data)
++  const contentDigest = await sha256Hex(bytes)
++  const cacheKey = [
++    context.providerInstanceId,
++    context.endpoint,
++    context.principal,
++    context.sessionId,
++    contentDigest,
++    filename,
++    source.media_type
++  ].join('\0')
++  let fileId = stagedFiles.get(cacheKey)
++  if (!fileId) {
++    fileId = (async () => {
++      const form = new FormData()
++      form.append('file', new Blob([bytes], { type: source.media_type }), filename)
++      const uploadResponse = await context.fetch(`${context.endpoint}/files`, {
++        method: 'POST',
++        headers: cloneHeadersWithout(context.headers, ['content-length', 'content-type']),
++        body: form,
++        signal: context.signal
++      })
++      return (await parseStagedFileResponse(uploadResponse)).id
++    })()
++    rememberStagedFile(cacheKey, fileId)
++    fileId.catch(() => {
++      if (stagedFiles.get(cacheKey) === fileId) stagedFiles.delete(cacheKey)
++    })
++  }
++  return { cacheKey, fileId: await fileId }
++}
++
++async function prepareMessageBody(
++  originalBody: string,
++  context: RewriteContext
++): Promise<PreparedMessageBody | undefined> {
++  const parsed: unknown = JSON.parse(originalBody)
++  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
++  const body = parsed as AnthropicMessagesRequest
++  const rewrites = collectFileRewrites(body)
++  const uploadCacheKeys = new Set<string>()
++
++  await Promise.all(
++    rewrites.map(async ({ block, source, filename }) => {
++      const staged = await stageFile(source, filename, context)
++      block.source = { type: 'file', file_id: staged.fileId }
++      uploadCacheKeys.add(staged.cacheKey)
++    })
++  )
++
++  const metadata =
++    typeof body.metadata === 'object' && body.metadata !== null && !Array.isArray(body.metadata) ? body.metadata : {}
++  body.metadata = { ...metadata, user_id: context.sessionId }
++  delete body.tools
++  delete body.tool_choice
++  return { body: JSON.stringify(body), uploadCacheKeys }
++}
++
++async function readClewdrErrorType(response: Response): Promise<string | undefined> {
++  try {
++    const payload = (await response.clone().json()) as ClewdrErrorEnvelope
++    if (payload.type !== 'error' || typeof payload.error !== 'object' || payload.error === null) return undefined
++    if (typeof payload.error.type !== 'string' || typeof payload.error.message !== 'string') return undefined
++    return payload.error.type
++  } catch {
++    return undefined
++  }
++}
++
+ export function createClewdrFetch(
+   options: AnthropicProviderSettings,
+   context: ClewdrProviderContextSettings
+@@ -175,57 +280,41 @@ export function createClewdrFetch(
+       return fetch(input, init)
+     }
+ 
+-    const body = JSON.parse(init.body) as AnthropicMessagesRequest
+     const sessionId = await createClewdrSessionId(context)
+     const originalHeaders = mergeHeaders(input, init.headers)
+     const principal = await sha256Hex(getPrincipalMaterial(originalHeaders, options.apiKey))
+-    const rewrites = collectFileRewrites(body)
+-
+-    await Promise.all(
+-      rewrites.map(async ({ block, source, filename }) => {
+-        const bytes = decodeBase64(source.data)
+-        const contentDigest = await sha256Hex(bytes)
+-        const cacheKey = [
+-          context.providerInstanceId,
+-          endpoint,
+-          principal,
+-          sessionId,
+-          contentDigest,
+-          filename,
+-          source.media_type
+-        ].join('\0')
+-        let fileId = stagedFiles.get(cacheKey)
+-        if (!fileId) {
+-          fileId = (async () => {
+-            const form = new FormData()
+-            form.append('file', new Blob([bytes], { type: source.media_type }), filename)
+-            const uploadResponse = await fetch(`${endpoint}/files`, {
+-              method: 'POST',
+-              headers: cloneHeadersWithout(originalHeaders, ['content-length', 'content-type']),
+-              body: form,
+-              signal: init.signal
+-            })
+-            return (await parseStagedFileResponse(uploadResponse)).id
+-          })()
+-          rememberStagedFile(cacheKey, fileId)
+-          fileId.catch(() => stagedFiles.delete(cacheKey))
+-        }
+-        block.source = { type: 'file', file_id: await fileId }
+-      })
+-    )
+-
+-    body.metadata = { ...body.metadata, user_id: sessionId }
+-    delete body.tools
+-    delete body.tool_choice
++    const requestContext: RewriteContext = {
++      endpoint,
++      fetch,
++      headers: originalHeaders,
++      principal,
++      providerInstanceId: context.providerInstanceId,
++      sessionId,
++      signal: init.signal
++    }
++    const prepared = await prepareMessageBody(init.body, requestContext)
++    if (!prepared) return fetch(input, init)
+ 
+     const messageInit: RequestInit = {
+       ...init,
+       headers: cloneHeadersWithout(originalHeaders, ['content-length']),
+-      body: JSON.stringify(body)
++      body: prepared.body
+     }
+     const firstResponse = await fetch(input, messageInit)
+     if (firstResponse.status !== 410) return firstResponse
+-    await firstResponse.body?.cancel()
++    const errorType = await readClewdrErrorType(firstResponse)
++
++    if (errorType === 'file_expired') {
++      if (prepared.uploadCacheKeys.size === 0) return firstResponse
++      prepared.uploadCacheKeys.forEach((cacheKey) => stagedFiles.delete(cacheKey))
++      const restaged = await prepareMessageBody(init.body, requestContext)
++      if (!restaged) return firstResponse
++      await firstResponse.body?.cancel().catch(() => undefined)
++      return fetch(input, { ...messageInit, body: restaged.body })
++    }
++
++    if (errorType !== 'conversation_expired') return firstResponse
++    await firstResponse.body?.cancel().catch(() => undefined)
+ 
+     const resetHeaders = cloneHeadersWithout(originalHeaders, ['content-length'])
+     resetHeaders.set('content-type', 'application/json')
