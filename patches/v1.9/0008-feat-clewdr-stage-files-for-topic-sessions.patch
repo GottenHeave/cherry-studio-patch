@@ -1,0 +1,1116 @@
+From 090a07b41161b34523c479998def116bbf1b0f44 Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Thu, 16 Jul 2026 13:28:56 +0000
+Subject: [PATCH 8/8] feat(clewdr): stage files for topic sessions
+
+Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
+---
+ src/renderer/src/aiCore/AiProvider.ts         |  41 ++-
+ .../__tests__/AiProvider.clewdr.test.ts       | 132 +++++++
+ .../src/aiCore/plugins/PluginBuilder.ts       |   9 +-
+ .../__tests__/PluginBuilder.clewdr.test.ts    |  41 +++
+ .../__tests__/parameterBuilder.test.ts        |  54 ++-
+ .../aiCore/prepareParams/parameterBuilder.ts  |  16 +-
+ .../__tests__/clewdrCompatibility.test.ts     | 344 +++++++++++++++++-
+ .../aiCore/provider/custom/clewdr-provider.ts |  27 +-
+ .../aiCore/provider/custom/clewdr-request.ts  | 241 ++++++++++++
+ 9 files changed, 886 insertions(+), 19 deletions(-)
+ create mode 100644 src/renderer/src/aiCore/__tests__/AiProvider.clewdr.test.ts
+ create mode 100644 src/renderer/src/aiCore/plugins/__tests__/PluginBuilder.clewdr.test.ts
+ create mode 100644 src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+
+diff --git a/src/renderer/src/aiCore/AiProvider.ts b/src/renderer/src/aiCore/AiProvider.ts
+index a1b1845..0bd27a3 100644
+--- a/src/renderer/src/aiCore/AiProvider.ts
++++ b/src/renderer/src/aiCore/AiProvider.ts
+@@ -3,6 +3,7 @@ import type { generateImageResult } from '@cherrystudio/ai-core/core/runtime/typ
+ import { loggerService } from '@logger'
+ import { getEnableDeveloperMode } from '@renderer/hooks/useSettings'
+ import { addSpan, endSpan } from '@renderer/services/SpanManagerService'
++import store from '@renderer/store'
+ import type { StartSpanParams } from '@renderer/trace/types/ModelSpanEntity'
+ import type { Assistant, EditImageParams, GenerateImageParams, Model, Provider } from '@renderer/types'
+ import type { StreamTextParams } from '@renderer/types/aiCoreTypes'
+@@ -105,7 +106,41 @@ export default class AiProvider {
+       // If config wasn't set in constructor (when provider only), generate it now
+       this.config = await Promise.resolve(providerToAiSdkConfig(this.actualProvider, this.model))
+     }
+-    logger.debug('Using provider config for completions', this.config)
++    let providerConfig = this.config
++
++    if (providerConfig.providerId === 'clewdr') {
++      const clientId = store.getState().settings.userId
++      const sessionId = middlewareConfig.topicId
++      if (!clientId || !sessionId) {
++        throw new Error('Clewdr file sessions require a persisted user ID and topic ID')
++      }
++
++      const clewdrParams = { ...params }
++      delete clewdrParams.tools
++      delete clewdrParams.toolChoice
++      delete clewdrParams.stopWhen
++      params = clewdrParams
++      middlewareConfig = {
++        ...middlewareConfig,
++        enableWebSearch: false,
++        enableGenerateImage: false,
++        enableUrlContext: false,
++        isPromptToolUse: false,
++        isSupportedToolUse: false,
++        mcpTools: []
++      }
++      providerConfig = {
++        ...providerConfig,
++        providerSettings: {
++          ...providerConfig.providerSettings,
++          clientId,
++          providerInstanceId: this.actualProvider.id,
++          sessionId
++        }
++      }
++    }
++
++    logger.debug('Using provider config for completions', providerConfig)
+ 
+     // 注意：模型对象将由 createExecutor 内部处理，不再需要预先创建
+ 
+@@ -131,9 +166,9 @@ export default class AiProvider {
+         ...middlewareConfig,
+         topicId: middlewareConfig.topicId
+       }
+-      return await this._completionsForTrace(modelId, params, traceConfig, this.config)
++      return await this._completionsForTrace(modelId, params, traceConfig, providerConfig)
+     } else {
+-      return await this.modernCompletions(modelId, params, middlewareConfig, this.config)
++      return await this.modernCompletions(modelId, params, middlewareConfig, providerConfig)
+     }
+   }
+ 
+diff --git a/src/renderer/src/aiCore/__tests__/AiProvider.clewdr.test.ts b/src/renderer/src/aiCore/__tests__/AiProvider.clewdr.test.ts
+new file mode 100644
+index 0000000..3910adb
+--- /dev/null
++++ b/src/renderer/src/aiCore/__tests__/AiProvider.clewdr.test.ts
+@@ -0,0 +1,132 @@
++import type { Assistant, Model, Provider } from '@renderer/types'
++import type { StreamTextParams } from '@renderer/types/aiCoreTypes'
++import { stepCountIs } from 'ai'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++import type { AiProviderConfig } from '../AiProvider'
++import AiProvider from '../AiProvider'
++
++const mocks = vi.hoisted(() => {
++  const streamText = vi.fn()
++  return {
++    buildPlugins: vi.fn(() => []),
++    createExecutor: vi.fn(async () => ({ streamText })),
++    streamText
++  }
++})
++
++vi.mock('@cherrystudio/ai-core', () => ({ createExecutor: mocks.createExecutor }))
++vi.mock('@logger', () => ({
++  loggerService: {
++    withContext: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() })
++  }
++}))
++vi.mock('@renderer/hooks/useSettings', () => ({ getEnableDeveloperMode: () => false }))
++vi.mock('@renderer/services/SpanManagerService', () => ({ addSpan: vi.fn(), endSpan: vi.fn() }))
++vi.mock('@renderer/store', () => ({
++  default: { getState: () => ({ settings: { userId: 'persisted-client' } }) }
++}))
++vi.mock('@renderer/utils', () => ({ getLowerBaseModelName: (value: string) => value.toLowerCase() }))
++vi.mock('@shared/anthropic', () => ({ buildClaudeCodeSystemModelMessage: vi.fn(() => []) }))
++vi.mock('../chunk/AiSdkToChunkAdapter', () => ({ default: class AiSdkToChunkAdapter {} }))
++vi.mock('../plugins/PluginBuilder', () => ({ buildPlugins: mocks.buildPlugins }))
++vi.mock('../provider/providerConfig', () => ({
++  adaptProvider: ({ provider }: { provider: Provider }) => provider,
++  getActualProvider: vi.fn(),
++  providerToAiSdkConfig: () => ({
++    providerId: 'clewdr',
++    providerSettings: { apiKey: 'test', baseURL: 'https://clewdr.example/v1' }
++  })
++}))
++vi.mock('../services/listModels', () => ({ listModels: vi.fn() }))
++
++describe('AiProvider Clewdr boundary', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    mocks.streamText.mockResolvedValue({
++      consumeStream: vi.fn(async () => undefined),
++      text: Promise.resolve('done'),
++      totalUsage: Promise.resolve(undefined)
++    })
++  })
++
++  it('injects persisted context and clears local tool state before creating the executor', async () => {
++    const model = { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'clewdr' } as Model
++    const provider: Provider = {
++      id: 'clewdr-instance',
++      type: 'clewdr',
++      name: 'Clewdr',
++      apiKey: 'test',
++      apiHost: 'https://clewdr.example/v1',
++      models: [model]
++    }
++    const assistant: Assistant = {
++      id: 'assistant',
++      name: 'Assistant',
++      prompt: '',
++      topics: [],
++      type: 'assistant',
++      model
++    }
++    const params: StreamTextParams = {
++      messages: [],
++      tools: {},
++      toolChoice: 'auto',
++      stopWhen: stepCountIs(2)
++    }
++    const config: AiProviderConfig = {
++      assistant,
++      topicId: 'topic-1',
++      callType: 'chat',
++      streamOutput: true,
++      enableReasoning: false,
++      enableWebSearch: true,
++      enableGenerateImage: true,
++      enableUrlContext: true,
++      isPromptToolUse: true,
++      isSupportedToolUse: true,
++      mcpTools: [
++        {
++          id: 'view',
++          serverId: 'server',
++          serverName: 'Server',
++          name: 'view',
++          description: 'local collision',
++          inputSchema: { type: 'object', properties: {}, required: [] },
++          type: 'mcp'
++        }
++      ]
++    }
++
++    await new AiProvider(model, provider).completions(model.id, params, config)
++
++    expect(mocks.createExecutor).toHaveBeenCalledWith(
++      'clewdr',
++      expect.objectContaining({
++        clientId: 'persisted-client',
++        providerInstanceId: 'clewdr-instance',
++        sessionId: 'topic-1'
++      }),
++      []
++    )
++    expect(mocks.buildPlugins).toHaveBeenCalledWith(
++      expect.objectContaining({
++        config: expect.objectContaining({
++          enableWebSearch: false,
++          enableGenerateImage: false,
++          enableUrlContext: false,
++          isPromptToolUse: false,
++          isSupportedToolUse: false,
++          mcpTools: []
++        })
++      })
++    )
++    expect(mocks.streamText).toHaveBeenCalledWith(
++      expect.not.objectContaining({
++        tools: expect.anything(),
++        toolChoice: expect.anything(),
++        stopWhen: expect.anything()
++      })
++    )
++  })
++})
+diff --git a/src/renderer/src/aiCore/plugins/PluginBuilder.ts b/src/renderer/src/aiCore/plugins/PluginBuilder.ts
+index 6b58d86..ffcbe0a 100644
+--- a/src/renderer/src/aiCore/plugins/PluginBuilder.ts
++++ b/src/renderer/src/aiCore/plugins/PluginBuilder.ts
+@@ -45,6 +45,7 @@ export interface BuildPluginsContext {
+  */
+ export function buildPlugins({ provider, model, config }: BuildPluginsContext): AiPlugin[] {
+   const plugins: AiPlugin<any, any>[] = []
++  const allowLocalToolPlugins = provider.type !== 'clewdr'
+ 
+   if (config.topicId && getEnableDeveloperMode()) {
+     // 0. 添加 telemetry 插件
+@@ -117,14 +118,14 @@ export function buildPlugins({ provider, model, config }: BuildPluginsContext):
+   }
+ 
+   // 1. Provider 工具注入 — providerToolPlugin 自动按 provider 分发工具
+-  if (config.enableWebSearch && config.webSearchPluginConfig) {
++  if (allowLocalToolPlugins && config.enableWebSearch && config.webSearchPluginConfig) {
+     plugins.push(providerToolPlugin('webSearch', config.webSearchPluginConfig))
+   }
+-  if (config.enableUrlContext) {
++  if (allowLocalToolPlugins && config.enableUrlContext) {
+     plugins.push(providerToolPlugin('urlContext', config.urlContextConfig))
+   }
+   // 2. 支持工具调用时添加搜索插件
+-  if (config.isSupportedToolUse || config.isPromptToolUse) {
++  if (allowLocalToolPlugins && (config.isSupportedToolUse || config.isPromptToolUse)) {
+     plugins.push(searchOrchestrationPlugin(config.assistant, config.topicId || ''))
+   }
+ 
+@@ -134,7 +135,7 @@ export function buildPlugins({ provider, model, config }: BuildPluginsContext):
+   // }
+ 
+   // 4. 启用Prompt工具调用时添加工具插件
+-  if (config.isPromptToolUse) {
++  if (allowLocalToolPlugins && config.isPromptToolUse) {
+     plugins.push(
+       createPromptToolUsePlugin({
+         enabled: true,
+diff --git a/src/renderer/src/aiCore/plugins/__tests__/PluginBuilder.clewdr.test.ts b/src/renderer/src/aiCore/plugins/__tests__/PluginBuilder.clewdr.test.ts
+new file mode 100644
+index 0000000..f76e8fa
+--- /dev/null
++++ b/src/renderer/src/aiCore/plugins/__tests__/PluginBuilder.clewdr.test.ts
+@@ -0,0 +1,41 @@
++import type { Model, Provider } from '@renderer/types'
++import { describe, expect, it } from 'vitest'
++
++import { buildPlugins } from '../PluginBuilder'
++
++describe('Clewdr plugin isolation', () => {
++  it('excludes every local tool plugin even when middleware flags are enabled', () => {
++    const model = { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'clewdr' } as Model
++    const provider: Provider = {
++      id: 'clewdr-instance',
++      type: 'clewdr',
++      name: 'Clewdr',
++      apiKey: 'test',
++      apiHost: 'https://clewdr.example/v1',
++      models: [model]
++    }
++    const assistant = { id: 'assistant', name: 'Assistant', prompt: '', topics: [], type: 'assistant', model }
++
++    const plugins = buildPlugins({
++      provider,
++      model,
++      config: {
++        assistant,
++        streamOutput: true,
++        enableReasoning: false,
++        enableWebSearch: true,
++        enableGenerateImage: false,
++        enableUrlContext: true,
++        isPromptToolUse: true,
++        isSupportedToolUse: true,
++        webSearchPluginConfig: {},
++        urlContextConfig: {},
++        mcpMode: 'auto'
++      }
++    })
++
++    expect(plugins.map((plugin) => plugin.name)).not.toEqual(
++      expect.arrayContaining(['webSearch', 'urlContext', 'search-orchestration', 'built-in:prompt-tool-use'])
++    )
++  })
++})
+diff --git a/src/renderer/src/aiCore/prepareParams/__tests__/parameterBuilder.test.ts b/src/renderer/src/aiCore/prepareParams/__tests__/parameterBuilder.test.ts
+index 8cdadc5..7d8cf91 100644
+--- a/src/renderer/src/aiCore/prepareParams/__tests__/parameterBuilder.test.ts
++++ b/src/renderer/src/aiCore/prepareParams/__tests__/parameterBuilder.test.ts
+@@ -1,6 +1,7 @@
++import type { Assistant, MCPTool, Model, Provider } from '@renderer/types'
+ import { describe, expect, it } from 'vitest'
+ 
+-import { getEffectiveMaxToolCalls } from '../parameterBuilder'
++import { buildStreamTextParams, getEffectiveMaxToolCalls } from '../parameterBuilder'
+ 
+ describe('getEffectiveMaxToolCalls', () => {
+   it('uses the default cap when settings are missing', () => {
+@@ -43,3 +44,54 @@ describe('getEffectiveMaxToolCalls', () => {
+     ).toBe(20)
+   })
+ })
++
++describe('Clewdr parameter isolation', () => {
++  it('does not expose local tools, tool steps, Hub prompts, or tool capabilities', async () => {
++    const model = { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', provider: 'clewdr' } as Model
++    const provider: Provider = {
++      id: 'clewdr-instance',
++      type: 'clewdr',
++      name: 'Clewdr',
++      apiKey: 'test',
++      apiHost: 'https://clewdr.example/v1',
++      models: [model]
++    }
++    const assistant: Assistant = {
++      id: 'assistant',
++      name: 'Assistant',
++      prompt: 'Keep this prompt unchanged',
++      topics: [],
++      type: 'assistant',
++      model,
++      mcpMode: 'auto',
++      enableWebSearch: true,
++      enableUrlContext: true,
++      enableGenerateImage: true
++    }
++    const mcpTools: MCPTool[] = [
++      {
++        id: 'view',
++        serverId: 'server',
++        serverName: 'Server',
++        name: 'view',
++        description: 'local collision',
++        inputSchema: { type: 'object', properties: {}, required: [] },
++        type: 'mcp'
++      }
++    ]
++
++    const result = await buildStreamTextParams([], assistant, provider, { mcpTools })
++
++    expect(result.params.system).toBe('Keep this prompt unchanged')
++    expect(result.params.tools).toBeUndefined()
++    expect(result.params.toolChoice).toBeUndefined()
++    expect(result.params.stopWhen).toBeUndefined()
++    expect(result.capabilities).toEqual({
++      enableReasoning: false,
++      enableWebSearch: false,
++      enableGenerateImage: false,
++      enableUrlContext: false
++    })
++    expect(result.webSearchPluginConfig).toBeUndefined()
++  })
++})
+diff --git a/src/renderer/src/aiCore/prepareParams/parameterBuilder.ts b/src/renderer/src/aiCore/prepareParams/parameterBuilder.ts
+index 0fbd590..81ac71c 100644
+--- a/src/renderer/src/aiCore/prepareParams/parameterBuilder.ts
++++ b/src/renderer/src/aiCore/prepareParams/parameterBuilder.ts
+@@ -127,6 +127,7 @@ export async function buildStreamTextParams(
+ 
+   const model = assistant.model || getDefaultModel()
+   const aiSdkProviderId = getAiSdkProviderId(provider)
++  const isClewdr = aiSdkProviderId === 'clewdr'
+ 
+   // 这三个变量透传出来，交给下面启用插件/中间件
+   // 也可以在外部构建好再传入buildStreamTextParams
+@@ -140,6 +141,7 @@ export async function buildStreamTextParams(
+   // 条件：没有外部搜索提供商 && (用户开启了内置搜索 || 模型强制使用内置搜索)
+   const hasExternalSearch = !!options.webSearchProviderId
+   const enableWebSearch =
++    !isClewdr &&
+     !hasExternalSearch &&
+     ((assistant.enableWebSearch && isWebSearchModel(model)) ||
+       isOpenRouterBuiltInWebSearchModel(model) ||
+@@ -147,15 +149,16 @@ export async function buildStreamTextParams(
+ 
+   // Validate provider and model support to prevent stale state from triggering urlContext
+   const enableUrlContext = !!(
++    !isClewdr &&
+     assistant.enableUrlContext &&
+     isSupportUrlContextProvider(provider) &&
+     !isPureGenerateImageModel(model) &&
+     (isGeminiModel(model) || isAnthropicModel(model))
+   )
+ 
+-  const enableGenerateImage = !!(isGenerateImageModel(model) && assistant.enableGenerateImage)
++  const enableGenerateImage = !!(!isClewdr && isGenerateImageModel(model) && assistant.enableGenerateImage)
+ 
+-  const tools = setupToolsConfig(mcpTools, options.allowedTools)
++  const tools = isClewdr ? undefined : setupToolsConfig(mcpTools, options.allowedTools)
+ 
+   // 构建真正的 providerOptions
+   const webSearchConfig: CherryWebSearchConfig = {
+@@ -220,15 +223,14 @@ export async function buildStreamTextParams(
+     maxRetries: 0
+   }
+ 
+-  params.stopWhen = stepCountIs(maxToolCalls)
+-
+-  if (tools) {
+-    params.tools = tools
++  if (!isClewdr) {
++    params.stopWhen = stepCountIs(maxToolCalls)
++    if (tools) params.tools = tools
+   }
+ 
+   let systemPrompt = assistant.prompt ? await replacePromptVariables(assistant.prompt, model.name) : ''
+ 
+-  if (getEffectiveMcpMode(assistant) === 'auto') {
++  if (!isClewdr && getEffectiveMcpMode(assistant) === 'auto') {
+     const autoModePrompt = getHubModeSystemPrompt()
+     if (autoModePrompt) {
+       systemPrompt = systemPrompt ? `${systemPrompt}\n\n${autoModePrompt}` : autoModePrompt
+diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+index 706a01e..b850455 100644
+--- a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
++++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+@@ -2,14 +2,21 @@ import { createAnthropic } from '@ai-sdk/anthropic'
+ import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider'
+ import { stepCountIs, streamText, tool } from 'ai'
+ import { describe, expect, it, vi } from 'vitest'
+-import { z } from 'zod'
++import * as z from 'zod'
+ 
+ import { createClewdr } from '../custom/clewdr-provider'
++import { createClewdrFetch, createClewdrSessionId, normalizeClewdrEndpoint } from '../custom/clewdr-request'
+ 
+ interface CapturedRequest {
+   body: unknown
+ }
+ 
++interface RecordedRequest {
++  url: string
++  init?: RequestInit
++  body?: Record<string, unknown>
++}
++
+ async function captureWithFetch(
+   run: (fetch: typeof globalThis.fetch) => PromiseLike<unknown>
+ ): Promise<CapturedRequest> {
+@@ -49,6 +56,67 @@ const textPrompt: LanguageModelV3CallOptions = {
+   prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+ }
+ 
++const clewdrSessionSettings = {
++  apiKey: 'test',
++  baseURL: 'https://clewdr.example/v1',
++  clientId: 'client-1',
++  sessionId: 'topic-1'
++} as const
++
++async function expectedSessionId(sessionId = 'topic-1') {
++  const input = `clewdr-cherry-session-v1\0client-1\0https://clewdr.example/v1\0${sessionId}`
++  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
++  return `cherry_topic_v1_${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')}`
++}
++
++function createSuccessfulStreamResponse() {
++  const events = [
++    {
++      type: 'message_start',
++      message: { id: 'msg-1', model: 'claude-sonnet-4-6', role: 'assistant', usage: { input_tokens: 1 }, content: [] }
++    },
++    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 1 } },
++    { type: 'message_stop' }
++  ]
++  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
++    headers: { 'content-type': 'text/event-stream' },
++    status: 200
++  })
++}
++
++function createStagedFilePrompt(): LanguageModelV3CallOptions {
++  const file = {
++    type: 'file' as const,
++    data: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
++    mediaType: 'application/zip',
++    filename: '../project.zip'
++  }
++  return {
++    prompt: [
++      { role: 'user', content: [{ type: 'text', text: 'first' }, file] },
++      { role: 'assistant', content: [{ type: 'text', text: '{"literal":"assistant-json"}' }] },
++      { role: 'user', content: [{ type: 'text', text: 'again' }, file] }
++    ]
++  }
++}
++
++function createRawFileBody(filename = 'project.zip', mediaType = 'application/zip') {
++  return JSON.stringify({
++    messages: [
++      {
++        role: 'user',
++        content: [
++          {
++            type: 'document',
++            source: { type: 'base64', media_type: mediaType, data: 'UEsDBA==' },
++            title: filename
++          }
++        ]
++      }
++    ]
++  })
++}
++
+ const toolUseBlockUpdate = {
+   type: 'content_block_delta',
+   index: 2,
+@@ -100,6 +168,277 @@ async function readStream(stream: ReadableStream<LanguageModelV3StreamPart>) {
+ }
+ 
+ describe('Clewdr Anthropic compatibility', () => {
++  it('rejects incomplete file-session context before creating the provider', () => {
++    expect(() => createClewdr({ apiKey: 'test', baseURL: 'https://clewdr.example/v1', clientId: 'client-1' })).toThrow(
++      'require clientId, sessionId, and baseURL'
++    )
++  })
++
++  it('canonicalizes equivalent endpoints before hashing the session identity', async () => {
++    const canonical = normalizeClewdrEndpoint('https://CLEWDR.example:443/v1///?ignored=yes#fragment')
++    expect(canonical).toBe('https://clewdr.example/v1')
++    await expect(
++      createClewdrSessionId({
++        baseURL: 'https://CLEWDR.example:443/v1///?ignored=yes#fragment',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr',
++        sessionId: 'topic-1'
++      })
++    ).resolves.toBe(await expectedSessionId())
++  })
++
++  it('stages repeated files once and rewrites every historical source', async () => {
++    const requests: RecordedRequest[] = []
++    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : undefined
++      requests.push({ url, init, body })
++      if (url.endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_test',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { headers: { 'content-type': 'application/json' }, status: 200 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++    await createClewdr({ ...clewdrSessionSettings, fetch })
++      .languageModel('claude-sonnet-4-6')
++      .doStream(createStagedFilePrompt())
++    await createClewdr({ ...clewdrSessionSettings, fetch })
++      .languageModel('claude-sonnet-4-6')
++      .doStream(createStagedFilePrompt())
++
++    const uploads = requests.filter((request) => request.url.endsWith('/files'))
++    const messages = requests.filter((request) => request.url.endsWith('/messages'))
++    expect(uploads).toHaveLength(1)
++    expect(uploads[0].init?.body).toBeInstanceOf(FormData)
++    expect(messages).toHaveLength(2)
++    expect(messages[0].body).toMatchObject({ metadata: { user_id: await expectedSessionId() } })
++    expect(JSON.stringify(messages[0].body)).not.toContain('UEsDBA==')
++    expect(messages[0].body).toMatchObject({
++      messages: [
++        {
++          content: [
++            { type: 'text', text: 'first' },
++            { type: 'document', source: { type: 'file', file_id: 'file_clewdr_v1_test' }, title: '../project.zip' }
++          ]
++        },
++        { content: [{ type: 'text', text: '{"literal":"assistant-json"}' }] },
++        {
++          content: [
++            { type: 'text', text: 'again' },
++            { type: 'document', source: { type: 'file', file_id: 'file_clewdr_v1_test' }, title: '../project.zip' }
++          ]
++        }
++      ]
++    })
++    expect(messages[1].body).toEqual(messages[0].body)
++  })
++
++  it('preserves message headers and abort signal while rebuilding the request body', async () => {
++    const requests: RecordedRequest[] = []
++    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = input instanceof Request ? input.url : String(input)
++      requests.push({ url, init })
++      if (url.endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_test',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { headers: { 'content-type': 'application/json' }, status: 200 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++    const controller = new AbortController()
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-contract',
++        sessionId: 'topic-headers'
++      }
++    )
++
++    await wrappedFetch(new Request('https://clewdr.example/v1/messages', { headers: { 'x-request': 'kept' } }), {
++      method: 'POST',
++      headers: { 'content-type': 'application/json', 'content-length': '999', 'x-contract': 'kept' },
++      body: JSON.stringify({
++        messages: [
++          {
++            role: 'user',
++            content: [
++              {
++                type: 'document',
++                source: { type: 'base64', media_type: 'application/zip', data: 'UEsDBA==' },
++                title: 'project.zip'
++              }
++            ]
++          }
++        ]
++      }),
++      signal: controller.signal
++    })
++
++    const upload = requests.find((request) => request.url.endsWith('/files'))
++    const message = requests.find((request) => request.url.endsWith('/messages'))
++    expect(upload?.init?.signal).toBe(controller.signal)
++    expect(message?.init?.signal).toBe(controller.signal)
++    expect(new Headers(upload?.init?.headers).get('x-contract')).toBe('kept')
++    expect(new Headers(upload?.init?.headers).get('x-request')).toBe('kept')
++    expect(new Headers(upload?.init?.headers).has('content-type')).toBe(false)
++    expect(new Headers(message?.init?.headers).get('x-contract')).toBe('kept')
++    expect(new Headers(message?.init?.headers).get('x-request')).toBe('kept')
++    expect(new Headers(message?.init?.headers).get('content-type')).toBe('application/json')
++  })
++
++  it('deduplicates concurrent uploads by the complete cache tuple', async () => {
++    let uploads = 0
++    let releaseUpload: (() => void) | undefined
++    const blocked = new Promise<void>((resolve) => {
++      releaseUpload = resolve
++    })
++    const fetch = (async (input: RequestInfo | URL) => {
++      if (String(input).endsWith('/files')) {
++        uploads += 1
++        await blocked
++        return new Response(
++          JSON.stringify({
++            id: `file_clewdr_v1_${uploads}`,
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-cache-tuple',
++        sessionId: 'topic-cache-tuple'
++      }
++    )
++    const send = (body: string) =>
++      wrappedFetch('https://clewdr.example/v1/messages', { method: 'POST', body, headers: { 'x-api-key': 'test' } })
++
++    const first = send(createRawFileBody())
++    const concurrent = send(createRawFileBody())
++    releaseUpload?.()
++    await Promise.all([first, concurrent])
++    await send(createRawFileBody())
++    expect(uploads).toBe(1)
++
++    await send(createRawFileBody('renamed.zip'))
++    await send(createRawFileBody('project.zip', 'application/octet-stream'))
++    expect(uploads).toBe(3)
++  })
++
++  it('surfaces 409 without resetting or retrying', async () => {
++    const urls: string[] = []
++    const fetch = (async (input: RequestInfo | URL) => {
++      urls.push(String(input))
++      return new Response(
++        JSON.stringify({ type: 'error', error: { type: 'conversation_reuse_failed', message: 'cannot reuse' } }),
++        { headers: { 'content-type': 'application/json' }, status: 409 }
++      )
++    }) as typeof globalThis.fetch
++
++    await expect(
++      createClewdr({ ...clewdrSessionSettings, fetch })
++        .languageModel('claude-sonnet-4-6')
++        .doStream(textPrompt)
++    ).rejects.toMatchObject({ statusCode: 409 })
++    expect(urls).toEqual(['https://clewdr.example/v1/messages'])
++  })
++
++  it('resets once on 410 and retries with the same staged reference', async () => {
++    const requests: RecordedRequest[] = []
++    let messageCount = 0
++    const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : undefined
++      requests.push({ url, init, body })
++      if (url.endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_test',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { headers: { 'content-type': 'application/json' }, status: 200 }
++        )
++      }
++      if (url.endsWith('/sessions/reset')) {
++        return new Response('{}', { status: 200 })
++      }
++      messageCount += 1
++      if (messageCount === 1) {
++        return new Response(
++          JSON.stringify({ type: 'error', error: { type: 'conversation_expired', message: 'expired' } }),
++          { headers: { 'content-type': 'application/json' }, status: 410 }
++        )
++      }
++      return createSuccessfulStreamResponse()
++    }) as typeof globalThis.fetch
++
++    await createClewdr({ ...clewdrSessionSettings, sessionId: 'topic-reset', fetch })
++      .languageModel('claude-sonnet-4-6')
++      .doStream(createFilePrompt('project.zip'))
++
++    expect(requests.map((request) => request.url)).toEqual([
++      'https://clewdr.example/v1/files',
++      'https://clewdr.example/v1/messages',
++      'https://clewdr.example/v1/sessions/reset',
++      'https://clewdr.example/v1/messages'
++    ])
++    expect(requests[2].body).toEqual({ session_id: await expectedSessionId('topic-reset') })
++    expect(requests[3].body).toEqual(requests[1].body)
++    expect(JSON.stringify(requests[3].body)).not.toContain('UEsDBA==')
++  })
++
++  it('does not reset more than once when the retry also returns 410', async () => {
++    const urls: string[] = []
++    const fetch = (async (input: RequestInfo | URL) => {
++      const url = String(input)
++      urls.push(url)
++      if (url.endsWith('/sessions/reset')) return new Response('{}', { status: 200 })
++      return new Response(
++        JSON.stringify({ type: 'error', error: { type: 'conversation_expired', message: 'expired' } }),
++        { headers: { 'content-type': 'application/json' }, status: 410 }
++      )
++    }) as typeof globalThis.fetch
++
++    await expect(
++      createClewdr({ ...clewdrSessionSettings, sessionId: 'topic-double-410', fetch })
++        .languageModel('claude-sonnet-4-6')
++        .doStream(textPrompt)
++    ).rejects.toMatchObject({ statusCode: 410 })
++    expect(urls).toEqual([
++      'https://clewdr.example/v1/messages',
++      'https://clewdr.example/v1/sessions/reset',
++      'https://clewdr.example/v1/messages'
++    ])
++  })
++
+   it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
+     const request = await captureWithFetch((fetch) =>
+       createClewdr({ apiKey: 'test', baseURL: 'http://127.0.0.1:8484/v1', fetch })
+@@ -242,7 +581,7 @@ describe('Clewdr Anthropic compatibility', () => {
+       )
+     }) as typeof globalThis.fetch
+     const result = streamText({
+-      model: createClewdr({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6'),
++      model: createClewdr({ ...clewdrSessionSettings, fetch }).languageModel('claude-sonnet-4-6'),
+       prompt: 'hello',
+       tools: {
+         view: tool({ inputSchema: z.object({ path: z.string() }), execute })
+@@ -255,6 +594,7 @@ describe('Clewdr Anthropic compatibility', () => {
+ 
+     expect(execute).not.toHaveBeenCalled()
+     expect(requestCount).toBe(1)
++    expect(requestBodies[0]).toMatchObject({ metadata: { user_id: await expectedSessionId() } })
+     expect(requestBodies[0]).not.toHaveProperty('tools')
+     expect(requestBodies[0]).not.toHaveProperty('tool_choice')
+   })
+diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
+index 78b21b6..ee69b40 100644
+--- a/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
++++ b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
+@@ -1,7 +1,30 @@
+ import { type AnthropicProvider, type AnthropicProviderSettings, createAnthropic } from '@ai-sdk/anthropic'
+ 
+-export type ClewdrProviderSettings = AnthropicProviderSettings
++import { createClewdrFetch } from './clewdr-request'
++
++export interface ClewdrProviderSettings extends AnthropicProviderSettings {
++  clientId?: string
++  providerInstanceId?: string
++  sessionId?: string
++}
+ 
+ export function createClewdr(options: ClewdrProviderSettings = {}): AnthropicProvider {
+-  return createAnthropic({ ...options, name: 'clewdr' })
++  const { clientId, providerInstanceId = 'clewdr', sessionId, ...anthropicOptions } = options
++  if (clientId === undefined && sessionId === undefined) {
++    return createAnthropic({ ...anthropicOptions, name: 'clewdr' })
++  }
++  if (!clientId || !sessionId || !anthropicOptions.baseURL) {
++    throw new Error('Clewdr file sessions require clientId, sessionId, and baseURL')
++  }
++
++  return createAnthropic({
++    ...anthropicOptions,
++    name: 'clewdr',
++    fetch: createClewdrFetch(anthropicOptions, {
++      clientId,
++      providerInstanceId,
++      sessionId,
++      baseURL: anthropicOptions.baseURL
++    })
++  })
+ }
+diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-request.ts b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+new file mode 100644
+index 0000000..0a6dacc
+--- /dev/null
++++ b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+@@ -0,0 +1,241 @@
++import type { AnthropicProviderSettings } from '@ai-sdk/anthropic'
++
++const SESSION_PREFIX = 'cherry_topic_v1_'
++const SESSION_HASH_DOMAIN = 'clewdr-cherry-session-v1'
++const MAX_STAGED_FILE_CACHE_ENTRIES = 1_024
++const stagedFiles = new Map<string, Promise<string>>()
++
++interface ClewdrRequestContext {
++  clientId: string
++  sessionId: string
++}
++
++interface ClewdrFileSource {
++  type: 'base64'
++  media_type: string
++  data: string
++}
++
++interface ClewdrFileReference {
++  type: 'file'
++  file_id: string
++}
++
++interface AnthropicContentBlock {
++  type?: string
++  title?: string
++  source?: ClewdrFileSource | ClewdrFileReference | unknown
++}
++
++interface AnthropicMessage {
++  content?: AnthropicContentBlock[] | string
++}
++
++interface AnthropicMessagesRequest {
++  messages?: AnthropicMessage[]
++  metadata?: Record<string, unknown>
++  tools?: unknown
++  tool_choice?: unknown
++}
++
++interface StagedFileResponse {
++  id: string
++  type: 'file'
++  filename: string
++  mime_type: string
++  size_bytes: number
++}
++
++interface PendingFileRewrite {
++  block: AnthropicContentBlock
++  source: ClewdrFileSource
++  filename: string
++}
++
++export interface ClewdrProviderContextSettings extends ClewdrRequestContext {
++  baseURL: string
++  providerInstanceId: string
++}
++
++export function normalizeClewdrEndpoint(endpoint: string): string {
++  const url = new URL(endpoint)
++  const pathname = url.pathname.replace(/\/+$/, '')
++  return `${url.origin}${pathname}`
++}
++
++async function sha256Hex(value: string | ArrayBuffer): Promise<string> {
++  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value
++  const digest = await crypto.subtle.digest('SHA-256', bytes)
++  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
++}
++
++export async function createClewdrSessionId(settings: ClewdrProviderContextSettings): Promise<string> {
++  const endpoint = normalizeClewdrEndpoint(settings.baseURL)
++  const digest = await sha256Hex(`${SESSION_HASH_DOMAIN}\0${settings.clientId}\0${endpoint}\0${settings.sessionId}`)
++  return `${SESSION_PREFIX}${digest}`
++}
++
++function rememberStagedFile(cacheKey: string, fileId: Promise<string>): void {
++  stagedFiles.delete(cacheKey)
++  stagedFiles.set(cacheKey, fileId)
++  while (stagedFiles.size > MAX_STAGED_FILE_CACHE_ENTRIES) {
++    const oldestKey = stagedFiles.keys().next().value
++    if (oldestKey) stagedFiles.delete(oldestKey)
++  }
++}
++
++function isBase64FileSource(source: AnthropicContentBlock['source']): source is ClewdrFileSource {
++  if (typeof source !== 'object' || source === null) return false
++  const candidate = source as Partial<ClewdrFileSource>
++  return candidate.type === 'base64' && typeof candidate.media_type === 'string' && typeof candidate.data === 'string'
++}
++
++function normalizeFilename(filename: string | undefined): string {
++  const basename = filename?.replaceAll('\\', '/').split('/').filter(Boolean).at(-1) ?? 'file'
++  const printable = [...basename].filter((character) => {
++    const codePoint = character.codePointAt(0) ?? 0
++    return codePoint > 0x1f && codePoint !== 0x7f
++  })
++  return printable.join('').trim() || 'file'
++}
++
++function decodeBase64(data: string): ArrayBuffer {
++  const binary = atob(data)
++  const buffer = new ArrayBuffer(binary.length)
++  const bytes = new Uint8Array(buffer)
++  for (let index = 0; index < binary.length; index += 1) {
++    bytes[index] = binary.charCodeAt(index)
++  }
++  return buffer
++}
++
++function getRequestUrl(input: RequestInfo | URL): string {
++  return input instanceof Request ? input.url : String(input)
++}
++
++function cloneHeadersWithout(headers: HeadersInit | undefined, names: string[]): Headers {
++  const result = new Headers(headers)
++  for (const name of names) result.delete(name)
++  return result
++}
++
++function mergeHeaders(input: RequestInfo | URL, headers: HeadersInit | undefined): Headers {
++  const result = input instanceof Request ? new Headers(input.headers) : new Headers()
++  new Headers(headers).forEach((value, key) => result.set(key, value))
++  return result
++}
++
++function getPrincipalMaterial(headers: Headers, apiKey: string | undefined): string {
++  return headers.get('x-api-key') || headers.get('authorization') || apiKey || ''
++}
++
++function collectFileRewrites(body: AnthropicMessagesRequest): PendingFileRewrite[] {
++  const rewrites: PendingFileRewrite[] = []
++  for (const message of body.messages || []) {
++    if (!Array.isArray(message.content)) continue
++    for (const block of message.content) {
++      if ((block.type === 'document' || block.type === 'image') && isBase64FileSource(block.source)) {
++        rewrites.push({ block, source: block.source, filename: normalizeFilename(block.title) })
++      }
++    }
++  }
++  return rewrites
++}
++
++async function parseStagedFileResponse(response: Response): Promise<StagedFileResponse> {
++  if (!response.ok) {
++    const error = new Error(`Clewdr file upload failed with status ${response.status}`)
++    Object.assign(error, { statusCode: response.status, responseBody: await response.text() })
++    throw error
++  }
++  const value = (await response.json()) as Partial<StagedFileResponse>
++  if (
++    typeof value.id !== 'string' ||
++    value.type !== 'file' ||
++    typeof value.filename !== 'string' ||
++    typeof value.mime_type !== 'string' ||
++    typeof value.size_bytes !== 'number'
++  ) {
++    throw new Error('Clewdr file upload returned an invalid response')
++  }
++  return value as StagedFileResponse
++}
++
++export function createClewdrFetch(
++  options: AnthropicProviderSettings,
++  context: ClewdrProviderContextSettings
++): typeof globalThis.fetch {
++  const fetch = options.fetch || globalThis.fetch
++  const endpoint = normalizeClewdrEndpoint(context.baseURL)
++
++  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
++    const requestUrl = getRequestUrl(input)
++    const requestPath = new URL(requestUrl).pathname.replace(/\/+$/, '')
++    if (!requestPath.endsWith('/messages') || typeof init?.body !== 'string') {
++      return fetch(input, init)
++    }
++
++    const body = JSON.parse(init.body) as AnthropicMessagesRequest
++    const sessionId = await createClewdrSessionId(context)
++    const originalHeaders = mergeHeaders(input, init.headers)
++    const principal = await sha256Hex(getPrincipalMaterial(originalHeaders, options.apiKey))
++    const rewrites = collectFileRewrites(body)
++
++    await Promise.all(
++      rewrites.map(async ({ block, source, filename }) => {
++        const bytes = decodeBase64(source.data)
++        const contentDigest = await sha256Hex(bytes)
++        const cacheKey = [
++          context.providerInstanceId,
++          endpoint,
++          principal,
++          sessionId,
++          contentDigest,
++          filename,
++          source.media_type
++        ].join('\0')
++        let fileId = stagedFiles.get(cacheKey)
++        if (!fileId) {
++          fileId = (async () => {
++            const form = new FormData()
++            form.append('file', new Blob([bytes], { type: source.media_type }), filename)
++            const uploadResponse = await fetch(`${endpoint}/files`, {
++              method: 'POST',
++              headers: cloneHeadersWithout(originalHeaders, ['content-length', 'content-type']),
++              body: form,
++              signal: init.signal
++            })
++            return (await parseStagedFileResponse(uploadResponse)).id
++          })()
++          rememberStagedFile(cacheKey, fileId)
++          fileId.catch(() => stagedFiles.delete(cacheKey))
++        }
++        block.source = { type: 'file', file_id: await fileId }
++      })
++    )
++
++    body.metadata = { ...body.metadata, user_id: sessionId }
++    delete body.tools
++    delete body.tool_choice
++
++    const messageInit: RequestInit = {
++      ...init,
++      headers: cloneHeadersWithout(originalHeaders, ['content-length']),
++      body: JSON.stringify(body)
++    }
++    const firstResponse = await fetch(input, messageInit)
++    if (firstResponse.status !== 410) return firstResponse
++    await firstResponse.body?.cancel()
++
++    const resetHeaders = cloneHeadersWithout(originalHeaders, ['content-length'])
++    resetHeaders.set('content-type', 'application/json')
++    const resetResponse = await fetch(`${endpoint}/sessions/reset`, {
++      method: 'POST',
++      headers: resetHeaders,
++      body: JSON.stringify({ session_id: sessionId }),
++      signal: init.signal
++    })
++    if (!resetResponse.ok) return resetResponse
++    return fetch(input, messageInit)
++  }
++}
+-- 
+2.43.0
+
