@@ -19,6 +19,10 @@ which shows the tool name, input arguments, and execution result instead of an
 empty expanded dropdown.
 The v1.9 patchset seeds the model list exposed by Clewdr's `/v1/models`
 endpoint.
+When a Clewdr assistant response explicitly names an output path, the
+response ends with a `Download Files` link to `/files?session_id=...` using
+the configured provider base URL. The link falls back to `/v1/files` when no
+base URL is configured and does not carry authentication headers.
 
 ## Apply
 

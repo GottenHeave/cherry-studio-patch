@@ -1,7 +1,7 @@
-From ab605ad8b47f0594c3fc7769ec397bf376f939ac Mon Sep 17 00:00:00 2001
+From 027274a667e45167e965b48ce17773ac78a41e1b Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Thu, 16 Jul 2026 18:04:32 +0000
-Subject: [PATCH] fix(clewdr): classify expired resources
+Subject: [PATCH 09/10] fix(clewdr): classify expired resources
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---
@@ -425,3 +425,6 @@ index 0a6dacc..639f36c 100644
  
      const resetHeaders = cloneHeadersWithout(originalHeaders, ['content-length'])
      resetHeaders.set('content-type', 'application/json')
+-- 
+2.43.0
+

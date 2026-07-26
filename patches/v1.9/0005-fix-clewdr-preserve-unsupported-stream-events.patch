@@ -1,7 +1,7 @@
-From 203153ac82860bfded6e0593dbe5bf6ea68872ff Mon Sep 17 00:00:00 2001
+From 9033702ab806302d5cd85f8db8c9f8008f4c19ef Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 13:52:19 +0000
-Subject: [PATCH] fix(clewdr): preserve unsupported stream events
+Subject: [PATCH 05/10] fix(clewdr): preserve unsupported stream events
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---

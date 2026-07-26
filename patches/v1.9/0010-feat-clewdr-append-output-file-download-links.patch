@@ -1,0 +1,406 @@
+From a29371d1695e0c21ef7acca79bd8828270db8753 Mon Sep 17 00:00:00 2001
+From: Codex <codex@example.invalid>
+Date: Sun, 26 Jul 2026 21:12:53 +0000
+Subject: [PATCH 10/10] feat(clewdr): append output file download links
+
+Signed-off-by: Codex <codex@example.invalid>
+---
+ src/renderer/src/aiCore/AiProvider.ts         |  38 +++++-
+ .../__tests__/clewdrCompatibility.test.ts     | 107 ++++++++++++++-
+ .../aiCore/provider/custom/clewdr-request.ts  | 125 +++++++++++++++++-
+ 3 files changed, 260 insertions(+), 10 deletions(-)
+
+diff --git a/src/renderer/src/aiCore/AiProvider.ts b/src/renderer/src/aiCore/AiProvider.ts
+index 0bd27a3..f30b38d 100644
+--- a/src/renderer/src/aiCore/AiProvider.ts
++++ b/src/renderer/src/aiCore/AiProvider.ts
+@@ -7,11 +7,14 @@ import store from '@renderer/store'
+ import type { StartSpanParams } from '@renderer/trace/types/ModelSpanEntity'
+ import type { Assistant, EditImageParams, GenerateImageParams, Model, Provider } from '@renderer/types'
+ import type { StreamTextParams } from '@renderer/types/aiCoreTypes'
++import { type Chunk, ChunkType } from '@renderer/types/chunk'
+ import { getLowerBaseModelName } from '@renderer/utils'
+ import { buildClaudeCodeSystemModelMessage } from '@shared/anthropic'
+ 
+ import AiSdkToChunkAdapter from './chunk/AiSdkToChunkAdapter'
+ import { buildPlugins } from './plugins/PluginBuilder'
++import type { ClewdrProviderSettings } from './provider/custom/clewdr-provider'
++import { appendClewdrDownloadLink, createClewdrSessionId } from './provider/custom/clewdr-request'
+ import { adaptProvider, getActualProvider, providerToAiSdkConfig } from './provider/providerConfig'
+ import { listModels } from './services/listModels'
+ import type { AppProviderSettingsMap, CompletionsResult, ProviderConfig } from './types'
+@@ -281,12 +284,24 @@ export default class AiProvider {
+       providerConfig.providerSettings,
+       plugins
+     )
++    const transformResponseText = await this.createResponseTextTransformer(providerConfig)
+ 
+     // 创建带有中间件的执行器
+     if (middlewareConfig.onChunk) {
++      const emitChunk = middlewareConfig.onChunk
++      const onChunk = (chunk: Chunk) => {
++        if (chunk.type !== ChunkType.TEXT_COMPLETE) {
++          emitChunk(chunk)
++          return
++        }
++        emitChunk({
++          ...chunk,
++          text: transformResponseText(chunk.text)
++        })
++      }
+       const accumulate = this.model!.supported_text_delta !== false // true and undefined
+       const adapter = new AiSdkToChunkAdapter(
+-        middlewareConfig.onChunk,
++        onChunk,
+         middlewareConfig.mcpTools,
+         accumulate,
+         middlewareConfig.enableWebSearch,
+@@ -299,13 +314,13 @@ export default class AiProvider {
+       const streamResult = await executor.streamText({
+         ...params,
+         model: modelId,
+-        experimental_context: { onChunk: middlewareConfig.onChunk }
++        experimental_context: { onChunk }
+       })
+ 
+       const finalText = await adapter.processStream(streamResult)
+ 
+       return {
+-        getText: () => finalText
++        getText: () => transformResponseText(finalText)
+       }
+     } else {
+       // Since no onChunk is provided, the external consumer would not handle error chunk.
+@@ -337,7 +352,7 @@ export default class AiProvider {
+         const usage = await streamResult.totalUsage
+ 
+         return {
+-          getText: () => finalText,
++          getText: () => transformResponseText(finalText),
+           usage
+         }
+       } catch (error) {
+@@ -351,6 +366,21 @@ export default class AiProvider {
+     }
+   }
+ 
++  private async createResponseTextTransformer(providerConfig: ProviderConfig): Promise<(text: string) => string> {
++    if (providerConfig.providerId !== 'clewdr') return (text) => text
++
++    const settings = providerConfig.providerSettings as ClewdrProviderSettings
++    if (!settings.clientId || !settings.sessionId) return (text) => text
++
++    const sessionId = await createClewdrSessionId({
++      baseURL: settings.baseURL || '',
++      clientId: settings.clientId,
++      providerInstanceId: settings.providerInstanceId || this.actualProvider.id,
++      sessionId: settings.sessionId
++    })
++    return (text) => appendClewdrDownloadLink(text, settings.baseURL, sessionId)
++  }
++
+   /**
+    * 获取模型列表
+    * 使用 ModelListService 统一处理各 Provider 的模型列表获取
+diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+index 68b3c1e..97531d9 100644
+--- a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
++++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
+@@ -5,7 +5,13 @@ import { describe, expect, it, vi } from 'vitest'
+ import * as z from 'zod'
+ 
+ import { createClewdr } from '../custom/clewdr-provider'
+-import { createClewdrFetch, createClewdrSessionId, normalizeClewdrEndpoint } from '../custom/clewdr-request'
++import {
++  appendClewdrDownloadLink,
++  createClewdrFetch,
++  createClewdrFilesUrl,
++  createClewdrSessionId,
++  normalizeClewdrEndpoint
++} from '../custom/clewdr-request'
+ 
+ interface CapturedRequest {
+   body: unknown
+@@ -84,6 +90,23 @@ function createSuccessfulStreamResponse() {
+   })
+ }
+ 
++function createTextStreamResponse(text: string) {
++  const events = [
++    {
++      type: 'message_start',
++      message: { id: 'msg-1', model: 'claude-sonnet-4-6', role: 'assistant', usage: { input_tokens: 1 } }
++    },
++    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
++    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
++    { type: 'content_block_stop', index: 0 },
++    { type: 'message_stop' }
++  ]
++  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
++    headers: { 'content-type': 'text/event-stream' },
++    status: 200
++  })
++}
++
+ function createStagedFilePrompt(): LanguageModelV3CallOptions {
+   const file = {
+     type: 'file' as const,
+@@ -209,6 +232,88 @@ describe('Clewdr Anthropic compatibility', () => {
+     ).resolves.toBe(await expectedSessionId())
+   })
+ 
++  it('appends a download link only when the assistant names an output path', () => {
++    const text = 'Created the archive at `/tmp/report final.zip`.'
++    expect(appendClewdrDownloadLink(text, 'https://clewdr.example/v1', 'cherry_topic_v1_test')).toBe(
++      `${text}\n\n[Download Files](https://clewdr.example/v1/files?session_id=cherry_topic_v1_test)`
++    )
++    expect(appendClewdrDownloadLink('The report is ready.', 'https://clewdr.example/v1', 'session')).toBe(
++      'The report is ready.'
++    )
++    expect(
++      appendClewdrDownloadLink('See https://example.test/output/report.txt.', 'https://clewdr.example/v1', 'session')
++    ).toBe('See https://example.test/output/report.txt.')
++  })
++
++  it('encodes session IDs and falls back to the v1 files route without a base URL', () => {
++    expect(createClewdrFilesUrl('https://clewdr.example/v1', 'topic/id?value=1')).toBe(
++      'https://clewdr.example/v1/files?session_id=topic%2Fid%3Fvalue%3D1'
++    )
++    expect(createClewdrFilesUrl(undefined, 'topic-1')).toBe('/v1/files?session_id=topic-1')
++  })
++
++  it('appends the link to a successful stream returned by the request wrapper', async () => {
++    const fetch = (async () => createTextStreamResponse('Created `/tmp/report.txt`.')) as typeof globalThis.fetch
++    const response = await createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-stream',
++        sessionId: 'topic-stream'
++      }
++    )('https://clewdr.example/v1/messages', {
++      method: 'POST',
++      body: JSON.stringify({ messages: [] })
++    })
++
++    await expect(response.text()).resolves.toContain('[Download Files](https://clewdr.example/v1/files?session_id=')
++  })
++
++  it('appends the link after a file-expired retry succeeds', async () => {
++    let messageRequests = 0
++    const fetch = (async (input: RequestInfo | URL) => {
++      const url = String(input)
++      if (url.endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_retry',
++            type: 'file',
++            filename: 'report.txt',
++            mime_type: 'text/plain',
++            size_bytes: 4
++          }),
++          { headers: { 'content-type': 'application/json' }, status: 200 }
++        )
++      }
++      messageRequests += 1
++      if (messageRequests === 1) {
++        return new Response(JSON.stringify({ type: 'error', error: { type: 'file_expired', message: 'expired' } }), {
++          headers: { 'content-type': 'application/json' },
++          status: 410
++        })
++      }
++      return createTextStreamResponse('Wrote `/tmp/report.txt`.')
++    }) as typeof globalThis.fetch
++    const wrappedFetch = createClewdrFetch(
++      { apiKey: 'test', baseURL: 'https://clewdr.example/v1', fetch },
++      {
++        baseURL: 'https://clewdr.example/v1',
++        clientId: 'client-1',
++        providerInstanceId: 'clewdr-retry-link',
++        sessionId: 'topic-retry-link'
++      }
++    )
++
++    const response = await wrappedFetch('https://clewdr.example/v1/messages', {
++      method: 'POST',
++      body: createRawFileBody()
++    })
++
++    await expect(response.text()).resolves.toContain('[Download Files](https://clewdr.example/v1/files?session_id=')
++    expect(messageRequests).toBe(2)
++  })
++
+   it('stages repeated files once and rewrites every historical source', async () => {
+     const requests: RecordedRequest[] = []
+     const fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-request.ts b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+index 639f36c..4175b31 100644
+--- a/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
++++ b/src/renderer/src/aiCore/provider/custom/clewdr-request.ts
+@@ -100,11 +100,120 @@ async function sha256Hex(value: string | ArrayBuffer): Promise<string> {
+ }
+ 
+ export async function createClewdrSessionId(settings: ClewdrProviderContextSettings): Promise<string> {
+-  const endpoint = normalizeClewdrEndpoint(settings.baseURL)
++  const endpoint = settings.baseURL.trim() ? normalizeClewdrEndpoint(settings.baseURL) : '/v1'
+   const digest = await sha256Hex(`${SESSION_HASH_DOMAIN}\0${settings.clientId}\0${endpoint}\0${settings.sessionId}`)
+   return `${SESSION_PREFIX}${digest}`
+ }
+ 
++const CLEWDR_OUTPUT_PATH_PATTERN =
++  /(?:^|[\s(`"'])((?:\/(?:[^\s/`"']+\/)*[^\s/`"']+)|(?:\.{1,2}[\\/][^\s`"']+)|(?:[A-Za-z]:[\\/][^\s`"']+))/m
++
++function hasClewdrOutputPath(text: string): boolean {
++  return CLEWDR_OUTPUT_PATH_PATTERN.test(text)
++}
++
++export function createClewdrFilesUrl(baseURL: string | undefined, sessionId: string): string {
++  const endpoint = baseURL?.trim() ? normalizeClewdrEndpoint(baseURL) : '/v1'
++  const filesURL = `${endpoint}/files`
++  if (filesURL.startsWith('/')) return `${filesURL}?session_id=${encodeURIComponent(sessionId)}`
++
++  const url = new URL(filesURL)
++  url.searchParams.set('session_id', sessionId)
++  return url.toString()
++}
++
++export function appendClewdrDownloadLink(text: string, baseURL: string | undefined, sessionId: string): string {
++  if (!hasClewdrOutputPath(text) || text.includes('[Download Files](')) return text
++  return `${text}\n\n[Download Files](${createClewdrFilesUrl(baseURL, sessionId)})`
++}
++
++function appendClewdrDownloadLinkToResponse(response: Response, baseURL: string, sessionId: string): Response {
++  if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
++    return response
++  }
++
++  const encoder = new TextEncoder()
++  const decoder = new TextDecoder()
++  const downloadLink = createClewdrFilesUrl(baseURL, sessionId)
++  let buffered = ''
++  let assistantText = ''
++  let textBlockIndex = 0
++  let textBlockStopped = false
++  let linkAppended = false
++
++  const appendIfNeeded = (controller: TransformStreamDefaultController<Uint8Array>): void => {
++    if (linkAppended || !hasClewdrOutputPath(assistantText)) return
++    linkAppended = true
++    controller.enqueue(
++      encoder.encode(
++        `data: ${JSON.stringify({
++          type: 'content_block_delta',
++          index: textBlockIndex,
++          delta: { type: 'text_delta', text: `\n\n[Download Files](${downloadLink})` }
++        })}\n\n`
++      )
++    )
++  }
++
++  const inspectEvent = (event: string, controller: TransformStreamDefaultController<Uint8Array>): void => {
++    const data = event
++      .split(/\r?\n/)
++      .filter((line) => line.startsWith('data:'))
++      .map((line) => line.slice(5).trimStart())
++      .join('\n')
++    if (!data || data === '[DONE]') return
++
++    let parsed: unknown
++    try {
++      parsed = JSON.parse(data)
++    } catch {
++      return
++    }
++    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return
++    const eventData = parsed as { type?: unknown; index?: unknown; content_block?: unknown; delta?: unknown }
++    if (eventData.type === 'content_block_start' && typeof eventData.index === 'number') {
++      const contentBlock = eventData.content_block
++      if (typeof contentBlock === 'object' && contentBlock !== null && !Array.isArray(contentBlock)) {
++        const block = contentBlock as { type?: unknown }
++        if (block.type === 'text') textBlockIndex = eventData.index
++      }
++    }
++    if (eventData.type === 'content_block_delta' && typeof eventData.delta === 'object' && eventData.delta !== null) {
++      const delta = eventData.delta as { type?: unknown; text?: unknown }
++      if (delta.type === 'text_delta' && typeof delta.text === 'string') assistantText += delta.text
++    }
++    if (eventData.type === 'content_block_stop' && eventData.index === textBlockIndex) {
++      textBlockStopped = true
++      appendIfNeeded(controller)
++    }
++    if (eventData.type === 'message_stop' && !textBlockStopped) appendIfNeeded(controller)
++  }
++
++  const stream = new TransformStream<Uint8Array, Uint8Array>({
++    transform(chunk, controller) {
++      buffered += decoder.decode(chunk, { stream: true })
++      let boundary = buffered.indexOf('\n\n')
++      while (boundary !== -1) {
++        const event = buffered.slice(0, boundary + 2)
++        buffered = buffered.slice(boundary + 2)
++        inspectEvent(event, controller)
++        controller.enqueue(encoder.encode(event))
++        boundary = buffered.indexOf('\n\n')
++      }
++    },
++    flush(controller) {
++      buffered += decoder.decode()
++      if (buffered) {
++        inspectEvent(buffered, controller)
++        controller.enqueue(encoder.encode(buffered))
++      }
++      if (!textBlockStopped) appendIfNeeded(controller)
++    }
++  })
++
++  return new Response(response.body.pipeThrough(stream), response)
++}
++
+ function rememberStagedFile(cacheKey: string, fileId: Promise<string>): void {
+   stagedFiles.delete(cacheKey)
+   stagedFiles.set(cacheKey, fileId)
+@@ -293,7 +402,7 @@ export function createClewdrFetch(
+       signal: init.signal
+     }
+     const prepared = await prepareMessageBody(init.body, requestContext)
+-    if (!prepared) return fetch(input, init)
++    if (!prepared) return appendClewdrDownloadLinkToResponse(await fetch(input, init), endpoint, sessionId)
+ 
+     const messageInit: RequestInit = {
+       ...init,
+@@ -301,7 +410,9 @@ export function createClewdrFetch(
+       body: prepared.body
+     }
+     const firstResponse = await fetch(input, messageInit)
+-    if (firstResponse.status !== 410) return firstResponse
++    if (firstResponse.status !== 410) {
++      return appendClewdrDownloadLinkToResponse(firstResponse, endpoint, sessionId)
++    }
+     const errorType = await readClewdrErrorType(firstResponse)
+ 
+     if (errorType === 'file_expired') {
+@@ -310,7 +421,11 @@ export function createClewdrFetch(
+       const restaged = await prepareMessageBody(init.body, requestContext)
+       if (!restaged) return firstResponse
+       await firstResponse.body?.cancel().catch(() => undefined)
+-      return fetch(input, { ...messageInit, body: restaged.body })
++      return appendClewdrDownloadLinkToResponse(
++        await fetch(input, { ...messageInit, body: restaged.body }),
++        endpoint,
++        sessionId
++      )
+     }
+ 
+     if (errorType !== 'conversation_expired') return firstResponse
+@@ -325,6 +440,6 @@ export function createClewdrFetch(
+       signal: init.signal
+     })
+     if (!resetResponse.ok) return resetResponse
+-    return fetch(input, messageInit)
++    return appendClewdrDownloadLinkToResponse(await fetch(input, messageInit), endpoint, sessionId)
+   }
+ }
+-- 
+2.43.0
+

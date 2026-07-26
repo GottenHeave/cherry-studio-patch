@@ -1,0 +1,2419 @@
+From 5c12817a7f18fa76020bcd9fffa78348496af0ba Mon Sep 17 00:00:00 2001
+From: cherry-studio-patch automation <actions@users.noreply.github.com>
+Date: Sun, 26 Jul 2026 21:23:59 +0000
+Subject: [PATCH 3/3] feat(clewdr): append output file download links
+
+
+diff --git a/packages/provider-registry/data/providers.json b/packages/provider-registry/data/providers.json
+index 9a87584cf..942a67f0c 100644
+--- a/packages/provider-registry/data/providers.json
++++ b/packages/provider-registry/data/providers.json
+@@ -615,6 +615,28 @@
+       },
+       "name": "LM Studio"
+     },
++    {
++      "defaultChatEndpoint": "anthropic-messages",
++      "description": "ClewdR - AI model provider",
++      "endpointConfigs": {
++        "anthropic-messages": {
++          "adapterFamily": "clewdr",
++          "baseUrl": "http://127.0.0.1:8484/v1"
++        },
++        "openai-chat-completions": {
++          "adapterFamily": "openai-compatible",
++          "baseUrl": "http://127.0.0.1:8484/v1"
++        }
++      },
++      "id": "clewdr",
++      "metadata": {
++        "website": {
++          "docs": "https://github.com/Xerxes-2/clewdr/wiki",
++          "official": "https://github.com/Xerxes-2/clewdr"
++        }
++      },
++      "name": "ClewdR"
++    },
+     {
+       "defaultChatEndpoint": "anthropic-messages",
+       "description": "Anthropic - AI model provider",
+@@ -1849,5 +1871,5 @@
+       "presetProviderId": "minimax"
+     }
+   ],
+-  "version": "9ef047b89c8ba9e8"
++  "version": "a745d512a39b8ec7"
+ }
+diff --git a/patches/@ai-sdk__anthropic.patch b/patches/@ai-sdk__anthropic.patch
+index 0f646d895..fe7e05f26 100644
+--- a/patches/@ai-sdk__anthropic.patch
++++ b/patches/@ai-sdk__anthropic.patch
+@@ -1,25 +1,20 @@
+ diff --git a/dist/index.js b/dist/index.js
+-index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa30e23825 100644
++index 7008095..76fdf51 100644
+ --- a/dist/index.js
+ +++ b/dist/index.js
+-@@ -860,6 +860,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+-     ])
+-   )
+- );
+-+var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+-+  "message_start",
+-+  "content_block_start",
+-+  "content_block_delta",
+-+  "content_block_stop",
+-+  "message_delta",
+-+  "message_stop",
+-+  "ping",
+-+  "error"
+-+]);
+- var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+-   () => (0, import_provider_utils2.zodSchema)(
+-     import_v42.z.object({
+-@@ -1456,7 +1466,8 @@ async function prepareTools({
++@@ -748,6 +748,11 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++             type: import_v42.z.literal("compaction_delta"),
++             content: import_v42.z.string().nullish()
++           }),
+++          import_v42.z.object({
+++            type: import_v42.z.literal("tool_use_block_update_delta"),
+++            message: import_v42.z.string().nullish(),
+++            display_content: import_v42.z.unknown().nullish()
+++          }),
++           import_v42.z.object({
++             type: import_v42.z.literal("citations_delta"),
++             citation: import_v42.z.discriminatedUnion("type", [
++@@ -1456,7 +1461,8 @@ async function prepareTools({
+    cacheControlValidator,
+    supportsStructuredOutput,
+    supportsStrictTools,
+@@ -29,7 +24,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+  }) {
+    var _a, _b;
+    tools = (tools == null ? void 0 : tools.length) ? tools : void 0;
+-@@ -1488,7 +1499,7 @@ async function prepareTools({
++@@ -1488,7 +1494,7 @@ async function prepareTools({
+          anthropicTools2.push({
+            name: tool.name,
+            description: tool.description,
+@@ -38,7 +33,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+            cache_control: cacheControl,
+            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+-@@ -2212,7 +2223,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2212,7 +2218,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -48,7 +43,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2351,9 +2363,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2351,9 +2358,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -78,7 +73,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+                      }
+                      break;
+                    }
+-@@ -3456,23 +3485,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3456,23 +3480,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.advisor_20260301": "advisor"
+        }
+      });
+@@ -108,7 +103,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3485,6 +3517,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3485,6 +3512,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -118,7 +113,7 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3643,7 +3678,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3643,7 +3673,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -129,7 +124,15 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3709,7 +3746,8 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3703,21 +3735,23 @@ var AnthropicMessagesLanguageModel = class {
++       betas: toolsBetas
++     } = await prepareTools(
++       jsonResponseTool != null ? {
++-        tools: [...tools != null ? tools : [], jsonResponseTool],
++-        toolChoice: { type: "required" },
+++        tools: clewdr ? [] : [...tools != null ? tools : [], jsonResponseTool],
+++        toolChoice: clewdr ? void 0 : { type: "required" },
++         disableParallelToolUse: true,
+          cacheControlValidator,
+          supportsStructuredOutput: false,
+          supportsStrictTools,
+@@ -137,9 +140,11 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+ +        defaultEagerInputStreaming,
+ +        compatibleEndpoint
+        } : {
+-         tools: tools != null ? tools : [],
+-         toolChoice,
+-@@ -3717,7 +3755,8 @@ var AnthropicMessagesLanguageModel = class {
++-        tools: tools != null ? tools : [],
++-        toolChoice,
+++        tools: clewdr ? [] : tools != null ? tools : [],
+++        toolChoice: clewdr ? void 0 : toolChoice,
++         disableParallelToolUse: anthropicOptions == null ? void 0 : anthropicOptions.disableParallelToolUse,
+          cacheControlValidator,
+          supportsStructuredOutput,
+          supportsStrictTools,
+@@ -149,7 +154,35 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+        }
+      );
+      const cacheWarnings = cacheControlValidator.getWarnings();
+-@@ -4344,6 +4383,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3736,7 +3770,7 @@ var AnthropicMessagesLanguageModel = class {
++         ...userSuppliedBetas,
++         ...(_j = anthropicOptions == null ? void 0 : anthropicOptions.anthropicBeta) != null ? _j : []
++       ]),
++-      usesJsonResponseTool: jsonResponseTool != null,
+++      usesJsonResponseTool: !clewdr && jsonResponseTool != null,
++       toolNameMapping,
++       providerOptionsName,
++       usedCustomProviderKey
++@@ -3835,7 +3869,9 @@ var AnthropicMessagesLanguageModel = class {
++     const mcpToolCalls = {};
++     const serverToolCalls = {};
++     let isJsonResponseFromTool = false;
+++    const clewdr = this.config.provider === "clewdr";
++     for (const part of response.content) {
+++      if (clewdr && part.type.includes("tool")) continue;
++       switch (part.type) {
++         case "text": {
++           if (!usesJsonResponseTool) {
++@@ -4230,7 +4266,7 @@ var AnthropicMessagesLanguageModel = class {
++       finishReason: {
++         unified: mapAnthropicStopReason({
++           finishReason: response.stop_reason,
++-          isJsonResponseFromTool
+++          isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++         }),
++         raw: (_e = response.stop_reason) != null ? _e : void 0
++       },
++@@ -4344,6 +4380,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId3 = this.generateId;
+@@ -157,39 +190,93 @@ index 7008095442925300a84aac94f46ee206b802fd20..6f04524c31460ae8f9ce696b8d506dfa
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -4355,6 +4395,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -4351,10 +4388,13 @@ var AnthropicMessagesLanguageModel = class {
++         },
++         transform(chunk, controller) {
++           var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
++-          if (options.includeRawChunks) {
+++          if (options.includeRawChunks || clewdr) {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+-+            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+-+            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++            if (clewdr) {
+ +              return;
+ +            }
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4366,6 +4406,7 @@ var AnthropicMessagesLanguageModel = class {
++             case "content_block_start": {
++               const part = value.content_block;
++               const contentBlockType = part.type;
+++              if (clewdr && contentBlockType.includes("tool")) return;
++               if (contentBlockType === "fallback") {
++                 return;
++               }
++@@ -4928,6 +4969,12 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -4967,7 +5014,7 @@ var AnthropicMessagesLanguageModel = class {
++                 finishReason = {
++                   unified: mapAnthropicStopReason({
++                     finishReason: value.message.stop_reason,
++-                    isJsonResponseFromTool
+++                    isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                   }),
++                   raw: value.message.stop_reason
++                 };
++@@ -4980,7 +5027,7 @@ var AnthropicMessagesLanguageModel = class {
++               if (value.message.content != null) {
++                 for (let contentIndex = 0; contentIndex < value.message.content.length; contentIndex++) {
++                   const part = value.message.content[contentIndex];
++-                  if (part.type === "tool_use") {
+++                  if (!clewdr && part.type === "tool_use") {
++                     const caller = part.caller;
++                     const callerInfo = caller ? {
++                       type: caller.type,
++@@ -5037,7 +5084,7 @@ var AnthropicMessagesLanguageModel = class {
++               finishReason = {
++                 unified: mapAnthropicStopReason({
++                   finishReason: value.delta.stop_reason,
++-                  isJsonResponseFromTool
+++                  isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                 }),
++                 raw: (_k = value.delta.stop_reason) != null ? _k : void 0
++               };
++@@ -5878,4 +5925,4 @@ function forwardAnthropicContainerIdFromLastStep({
++   createAnthropic,
++   forwardAnthropicContainerIdFromLastStep
++ });
++-//# sourceMappingURL=index.js.map
++\ No newline at end of file
+++//# sourceMappingURL=index.js.map
+ diff --git a/dist/index.mjs b/dist/index.mjs
+-index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603df45a84c 100644
++index 073cc65..d8738b7 100644
+ --- a/dist/index.mjs
+ +++ b/dist/index.mjs
+-@@ -858,6 +858,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+-     ])
+-   )
+- );
+-+var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+-+  "message_start",
+-+  "content_block_start",
+-+  "content_block_delta",
+-+  "content_block_stop",
+-+  "message_delta",
+-+  "message_stop",
+-+  "ping",
+-+  "error"
+-+]);
+- var anthropicReasoningMetadataSchema = lazySchema2(
+-   () => zodSchema2(
+-     z2.object({
+-@@ -1480,7 +1490,8 @@ async function prepareTools({
++@@ -746,6 +746,11 @@ var anthropicMessagesChunkSchema = lazySchema2(
++             type: z2.literal("compaction_delta"),
++             content: z2.string().nullish()
++           }),
+++          z2.object({
+++            type: z2.literal("tool_use_block_update_delta"),
+++            message: z2.string().nullish(),
+++            display_content: z2.unknown().nullish()
+++          }),
++           z2.object({
++             type: z2.literal("citations_delta"),
++             citation: z2.discriminatedUnion("type", [
++@@ -1480,7 +1485,8 @@ async function prepareTools({
+    cacheControlValidator,
+    supportsStructuredOutput,
+    supportsStrictTools,
+@@ -199,7 +286,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+  }) {
+    var _a, _b;
+    tools = (tools == null ? void 0 : tools.length) ? tools : void 0;
+-@@ -1512,7 +1523,7 @@ async function prepareTools({
++@@ -1512,7 +1518,7 @@ async function prepareTools({
+          anthropicTools2.push({
+            name: tool.name,
+            description: tool.description,
+@@ -208,7 +295,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+            cache_control: cacheControl,
+            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+-@@ -2261,7 +2272,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2261,7 +2267,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -218,7 +305,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2400,9 +2412,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2400,9 +2407,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -248,7 +335,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+                      }
+                      break;
+                    }
+-@@ -3505,23 +3534,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3505,23 +3529,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.advisor_20260301": "advisor"
+        }
+      });
+@@ -278,7 +365,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3534,6 +3566,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3534,6 +3561,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -288,7 +375,7 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3692,7 +3727,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3692,7 +3722,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -299,7 +386,15 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3758,7 +3795,8 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3752,21 +3784,23 @@ var AnthropicMessagesLanguageModel = class {
++       betas: toolsBetas
++     } = await prepareTools(
++       jsonResponseTool != null ? {
++-        tools: [...tools != null ? tools : [], jsonResponseTool],
++-        toolChoice: { type: "required" },
+++        tools: clewdr ? [] : [...tools != null ? tools : [], jsonResponseTool],
+++        toolChoice: clewdr ? void 0 : { type: "required" },
++         disableParallelToolUse: true,
+          cacheControlValidator,
+          supportsStructuredOutput: false,
+          supportsStrictTools,
+@@ -307,9 +402,11 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+ +        defaultEagerInputStreaming,
+ +        compatibleEndpoint
+        } : {
+-         tools: tools != null ? tools : [],
+-         toolChoice,
+-@@ -3766,7 +3804,8 @@ var AnthropicMessagesLanguageModel = class {
++-        tools: tools != null ? tools : [],
++-        toolChoice,
+++        tools: clewdr ? [] : tools != null ? tools : [],
+++        toolChoice: clewdr ? void 0 : toolChoice,
++         disableParallelToolUse: anthropicOptions == null ? void 0 : anthropicOptions.disableParallelToolUse,
+          cacheControlValidator,
+          supportsStructuredOutput,
+          supportsStrictTools,
+@@ -319,7 +416,35 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+        }
+      );
+      const cacheWarnings = cacheControlValidator.getWarnings();
+-@@ -4393,6 +4432,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3785,7 +3819,7 @@ var AnthropicMessagesLanguageModel = class {
++         ...userSuppliedBetas,
++         ...(_j = anthropicOptions == null ? void 0 : anthropicOptions.anthropicBeta) != null ? _j : []
++       ]),
++-      usesJsonResponseTool: jsonResponseTool != null,
+++      usesJsonResponseTool: !clewdr && jsonResponseTool != null,
++       toolNameMapping,
++       providerOptionsName,
++       usedCustomProviderKey
++@@ -3884,7 +3918,9 @@ var AnthropicMessagesLanguageModel = class {
++     const mcpToolCalls = {};
++     const serverToolCalls = {};
++     let isJsonResponseFromTool = false;
+++    const clewdr = this.config.provider === "clewdr";
++     for (const part of response.content) {
+++      if (clewdr && part.type.includes("tool")) continue;
++       switch (part.type) {
++         case "text": {
++           if (!usesJsonResponseTool) {
++@@ -4279,7 +4315,7 @@ var AnthropicMessagesLanguageModel = class {
++       finishReason: {
++         unified: mapAnthropicStopReason({
++           finishReason: response.stop_reason,
++-          isJsonResponseFromTool
+++          isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++         }),
++         raw: (_e = response.stop_reason) != null ? _e : void 0
++       },
++@@ -4393,6 +4429,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId3 = this.generateId;
+@@ -327,39 +452,93 @@ index 073cc652eb10544e16823cd11d2f721fac1f771e..3274c284067b2d070a2462c977e28603
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -4404,6 +4444,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -4400,10 +4437,13 @@ var AnthropicMessagesLanguageModel = class {
++         },
++         transform(chunk, controller) {
++           var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
++-          if (options.includeRawChunks) {
+++          if (options.includeRawChunks || clewdr) {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+-+            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+-+            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++            if (clewdr) {
+ +              return;
+ +            }
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4415,6 +4455,7 @@ var AnthropicMessagesLanguageModel = class {
++             case "content_block_start": {
++               const part = value.content_block;
++               const contentBlockType = part.type;
+++              if (clewdr && contentBlockType.includes("tool")) return;
++               if (contentBlockType === "fallback") {
++                 return;
++               }
++@@ -4977,6 +5018,12 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5016,7 +5063,7 @@ var AnthropicMessagesLanguageModel = class {
++                 finishReason = {
++                   unified: mapAnthropicStopReason({
++                     finishReason: value.message.stop_reason,
++-                    isJsonResponseFromTool
+++                    isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                   }),
++                   raw: value.message.stop_reason
++                 };
++@@ -5029,7 +5076,7 @@ var AnthropicMessagesLanguageModel = class {
++               if (value.message.content != null) {
++                 for (let contentIndex = 0; contentIndex < value.message.content.length; contentIndex++) {
++                   const part = value.message.content[contentIndex];
++-                  if (part.type === "tool_use") {
+++                  if (!clewdr && part.type === "tool_use") {
++                     const caller = part.caller;
++                     const callerInfo = caller ? {
++                       type: caller.type,
++@@ -5086,7 +5133,7 @@ var AnthropicMessagesLanguageModel = class {
++               finishReason = {
++                 unified: mapAnthropicStopReason({
++                   finishReason: value.delta.stop_reason,
++-                  isJsonResponseFromTool
+++                  isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                 }),
++                 raw: (_k = value.delta.stop_reason) != null ? _k : void 0
++               };
++@@ -5966,4 +6013,4 @@ export {
++   createAnthropic,
++   forwardAnthropicContainerIdFromLastStep
++ };
++-//# sourceMappingURL=index.mjs.map
++\ No newline at end of file
+++//# sourceMappingURL=index.mjs.map
+ diff --git a/dist/internal/index.js b/dist/internal/index.js
+-index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27b98050f4 100644
++index af85cb1..d2e9eb2 100644
+ --- a/dist/internal/index.js
+ +++ b/dist/internal/index.js
+-@@ -852,6 +852,16 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
+-     ])
+-   )
+- );
+-+var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+-+  "message_start",
+-+  "content_block_start",
+-+  "content_block_delta",
+-+  "content_block_stop",
+-+  "message_delta",
+-+  "message_stop",
+-+  "ping",
+-+  "error"
+-+]);
+- var anthropicReasoningMetadataSchema = (0, import_provider_utils2.lazySchema)(
+-   () => (0, import_provider_utils2.zodSchema)(
+-     import_v42.z.object({
+-@@ -1448,7 +1458,8 @@ async function prepareTools({
++@@ -740,6 +740,11 @@ var anthropicMessagesChunkSchema = (0, import_provider_utils2.lazySchema)(
++             type: import_v42.z.literal("compaction_delta"),
++             content: import_v42.z.string().nullish()
++           }),
+++          import_v42.z.object({
+++            type: import_v42.z.literal("tool_use_block_update_delta"),
+++            message: import_v42.z.string().nullish(),
+++            display_content: import_v42.z.unknown().nullish()
+++          }),
++           import_v42.z.object({
++             type: import_v42.z.literal("citations_delta"),
++             citation: import_v42.z.discriminatedUnion("type", [
++@@ -1448,7 +1453,8 @@ async function prepareTools({
+    cacheControlValidator,
+    supportsStructuredOutput,
+    supportsStrictTools,
+@@ -369,7 +548,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+  }) {
+    var _a, _b;
+    tools = (tools == null ? void 0 : tools.length) ? tools : void 0;
+-@@ -1480,7 +1491,7 @@ async function prepareTools({
++@@ -1480,7 +1486,7 @@ async function prepareTools({
+          anthropicTools2.push({
+            name: tool.name,
+            description: tool.description,
+@@ -378,7 +557,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+            cache_control: cacheControl,
+            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+-@@ -2204,7 +2215,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2204,7 +2210,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -388,7 +567,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2343,9 +2355,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2343,9 +2350,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -418,7 +597,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+                      }
+                      break;
+                    }
+-@@ -3448,23 +3477,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3448,23 +3472,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.advisor_20260301": "advisor"
+        }
+      });
+@@ -448,7 +627,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3477,6 +3509,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3477,6 +3504,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -458,7 +637,7 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3635,7 +3670,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3635,7 +3665,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -469,7 +648,15 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3701,7 +3738,8 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3695,21 +3727,23 @@ var AnthropicMessagesLanguageModel = class {
++       betas: toolsBetas
++     } = await prepareTools(
++       jsonResponseTool != null ? {
++-        tools: [...tools != null ? tools : [], jsonResponseTool],
++-        toolChoice: { type: "required" },
+++        tools: clewdr ? [] : [...tools != null ? tools : [], jsonResponseTool],
+++        toolChoice: clewdr ? void 0 : { type: "required" },
++         disableParallelToolUse: true,
+          cacheControlValidator,
+          supportsStructuredOutput: false,
+          supportsStrictTools,
+@@ -477,9 +664,11 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+ +        defaultEagerInputStreaming,
+ +        compatibleEndpoint
+        } : {
+-         tools: tools != null ? tools : [],
+-         toolChoice,
+-@@ -3709,7 +3747,8 @@ var AnthropicMessagesLanguageModel = class {
++-        tools: tools != null ? tools : [],
++-        toolChoice,
+++        tools: clewdr ? [] : tools != null ? tools : [],
+++        toolChoice: clewdr ? void 0 : toolChoice,
++         disableParallelToolUse: anthropicOptions == null ? void 0 : anthropicOptions.disableParallelToolUse,
+          cacheControlValidator,
+          supportsStructuredOutput,
+          supportsStrictTools,
+@@ -489,7 +678,35 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+        }
+      );
+      const cacheWarnings = cacheControlValidator.getWarnings();
+-@@ -4336,6 +4375,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3728,7 +3762,7 @@ var AnthropicMessagesLanguageModel = class {
++         ...userSuppliedBetas,
++         ...(_j = anthropicOptions == null ? void 0 : anthropicOptions.anthropicBeta) != null ? _j : []
++       ]),
++-      usesJsonResponseTool: jsonResponseTool != null,
+++      usesJsonResponseTool: !clewdr && jsonResponseTool != null,
++       toolNameMapping,
++       providerOptionsName,
++       usedCustomProviderKey
++@@ -3827,7 +3861,9 @@ var AnthropicMessagesLanguageModel = class {
++     const mcpToolCalls = {};
++     const serverToolCalls = {};
++     let isJsonResponseFromTool = false;
+++    const clewdr = this.config.provider === "clewdr";
++     for (const part of response.content) {
+++      if (clewdr && part.type.includes("tool")) continue;
++       switch (part.type) {
++         case "text": {
++           if (!usesJsonResponseTool) {
++@@ -4222,7 +4258,7 @@ var AnthropicMessagesLanguageModel = class {
++       finishReason: {
++         unified: mapAnthropicStopReason({
++           finishReason: response.stop_reason,
++-          isJsonResponseFromTool
+++          isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++         }),
++         raw: (_e = response.stop_reason) != null ? _e : void 0
++       },
++@@ -4336,6 +4372,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId2 = this.generateId;
+@@ -497,39 +714,93 @@ index af85cb12ca16878f93dae60e5a590124c2627f10..b6f47b3010c6a92a54c43cad7089df27
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -4347,6 +4387,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -4343,10 +4380,13 @@ var AnthropicMessagesLanguageModel = class {
++         },
++         transform(chunk, controller) {
++           var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
++-          if (options.includeRawChunks) {
+++          if (options.includeRawChunks || clewdr) {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+-+            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+-+            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++            if (clewdr) {
+ +              return;
+ +            }
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4358,6 +4398,7 @@ var AnthropicMessagesLanguageModel = class {
++             case "content_block_start": {
++               const part = value.content_block;
++               const contentBlockType = part.type;
+++              if (clewdr && contentBlockType.includes("tool")) return;
++               if (contentBlockType === "fallback") {
++                 return;
++               }
++@@ -4920,6 +4961,12 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -4959,7 +5006,7 @@ var AnthropicMessagesLanguageModel = class {
++                 finishReason = {
++                   unified: mapAnthropicStopReason({
++                     finishReason: value.message.stop_reason,
++-                    isJsonResponseFromTool
+++                    isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                   }),
++                   raw: value.message.stop_reason
++                 };
++@@ -4972,7 +5019,7 @@ var AnthropicMessagesLanguageModel = class {
++               if (value.message.content != null) {
++                 for (let contentIndex = 0; contentIndex < value.message.content.length; contentIndex++) {
++                   const part = value.message.content[contentIndex];
++-                  if (part.type === "tool_use") {
+++                  if (!clewdr && part.type === "tool_use") {
++                     const caller = part.caller;
++                     const callerInfo = caller ? {
++                       type: caller.type,
++@@ -5029,7 +5076,7 @@ var AnthropicMessagesLanguageModel = class {
++               finishReason = {
++                 unified: mapAnthropicStopReason({
++                   finishReason: value.delta.stop_reason,
++-                  isJsonResponseFromTool
+++                  isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                 }),
++                 raw: (_k = value.delta.stop_reason) != null ? _k : void 0
++               };
++@@ -5778,4 +5825,4 @@ var anthropicTools = {
++   anthropicTools,
++   prepareTools
++ });
++-//# sourceMappingURL=index.js.map
++\ No newline at end of file
+++//# sourceMappingURL=index.js.map
+ diff --git a/dist/internal/index.mjs b/dist/internal/index.mjs
+-index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643eef35770 100644
++index 9c37d98..a64e513 100644
+ --- a/dist/internal/index.mjs
+ +++ b/dist/internal/index.mjs
+-@@ -842,6 +842,16 @@ var anthropicMessagesChunkSchema = lazySchema2(
+-     ])
+-   )
+- );
+-+var anthropicMessagesChunkTypes = /* @__PURE__ */ new Set([
+-+  "message_start",
+-+  "content_block_start",
+-+  "content_block_delta",
+-+  "content_block_stop",
+-+  "message_delta",
+-+  "message_stop",
+-+  "ping",
+-+  "error"
+-+]);
+- var anthropicReasoningMetadataSchema = lazySchema2(
+-   () => zodSchema2(
+-     z2.object({
+-@@ -1464,7 +1474,8 @@ async function prepareTools({
++@@ -730,6 +730,11 @@ var anthropicMessagesChunkSchema = lazySchema2(
++             type: z2.literal("compaction_delta"),
++             content: z2.string().nullish()
++           }),
+++          z2.object({
+++            type: z2.literal("tool_use_block_update_delta"),
+++            message: z2.string().nullish(),
+++            display_content: z2.unknown().nullish()
+++          }),
++           z2.object({
++             type: z2.literal("citations_delta"),
++             citation: z2.discriminatedUnion("type", [
++@@ -1464,7 +1469,8 @@ async function prepareTools({
+    cacheControlValidator,
+    supportsStructuredOutput,
+    supportsStrictTools,
+@@ -539,7 +810,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+  }) {
+    var _a, _b;
+    tools = (tools == null ? void 0 : tools.length) ? tools : void 0;
+-@@ -1496,7 +1507,7 @@ async function prepareTools({
++@@ -1496,7 +1502,7 @@ async function prepareTools({
+          anthropicTools2.push({
+            name: tool.name,
+            description: tool.description,
+@@ -548,7 +819,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+            cache_control: cacheControl,
+            ...eagerInputStreaming ? { eager_input_streaming: true } : {},
+            ...supportsStrictTools === true && tool.strict != null ? { strict: tool.strict } : {},
+-@@ -2245,7 +2256,8 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2245,7 +2251,8 @@ async function convertToAnthropicMessagesPrompt({
+    sendReasoning,
+    warnings,
+    cacheControlValidator,
+@@ -558,7 +829,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+  }) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t, _u;
+    const betas = /* @__PURE__ */ new Set();
+-@@ -2384,9 +2396,26 @@ async function convertToAnthropicMessagesPrompt({
++@@ -2384,9 +2391,26 @@ async function convertToAnthropicMessagesPrompt({
+                          cache_control: cacheControl
+                        });
+                      } else {
+@@ -588,7 +859,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+                      }
+                      break;
+                    }
+-@@ -3489,23 +3518,26 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3489,23 +3513,26 @@ var AnthropicMessagesLanguageModel = class {
+          "anthropic.advisor_20260301": "advisor"
+        }
+      });
+@@ -618,7 +889,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+        temperature,
+        top_k: topK,
+        top_p: topP,
+-@@ -3518,6 +3550,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3518,6 +3545,9 @@ var AnthropicMessagesLanguageModel = class {
+            ...thinkingDisplay != null && { display: thinkingDisplay }
+          }
+        },
+@@ -628,7 +899,7 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+        ...((anthropicOptions == null ? void 0 : anthropicOptions.effort) || (anthropicOptions == null ? void 0 : anthropicOptions.taskBudget) || useStructuredOutput && (responseFormat == null ? void 0 : responseFormat.type) === "json" && responseFormat.schema != null) && {
+          output_config: {
+            ...(anthropicOptions == null ? void 0 : anthropicOptions.effort) && {
+-@@ -3676,7 +3711,9 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3676,7 +3706,9 @@ var AnthropicMessagesLanguageModel = class {
+            details: "topP is not supported when thinking is enabled"
+          });
+        }
+@@ -639,7 +910,15 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+      } else {
+        if (isAnthropicModel && topP != null && temperature != null) {
+          warnings.push({
+-@@ -3742,7 +3779,8 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3736,21 +3768,23 @@ var AnthropicMessagesLanguageModel = class {
++       betas: toolsBetas
++     } = await prepareTools(
++       jsonResponseTool != null ? {
++-        tools: [...tools != null ? tools : [], jsonResponseTool],
++-        toolChoice: { type: "required" },
+++        tools: clewdr ? [] : [...tools != null ? tools : [], jsonResponseTool],
+++        toolChoice: clewdr ? void 0 : { type: "required" },
++         disableParallelToolUse: true,
+          cacheControlValidator,
+          supportsStructuredOutput: false,
+          supportsStrictTools,
+@@ -647,9 +926,11 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+ +        defaultEagerInputStreaming,
+ +        compatibleEndpoint
+        } : {
+-         tools: tools != null ? tools : [],
+-         toolChoice,
+-@@ -3750,7 +3788,8 @@ var AnthropicMessagesLanguageModel = class {
++-        tools: tools != null ? tools : [],
++-        toolChoice,
+++        tools: clewdr ? [] : tools != null ? tools : [],
+++        toolChoice: clewdr ? void 0 : toolChoice,
++         disableParallelToolUse: anthropicOptions == null ? void 0 : anthropicOptions.disableParallelToolUse,
+          cacheControlValidator,
+          supportsStructuredOutput,
+          supportsStrictTools,
+@@ -659,7 +940,35 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+        }
+      );
+      const cacheWarnings = cacheControlValidator.getWarnings();
+-@@ -4377,6 +4416,7 @@ var AnthropicMessagesLanguageModel = class {
++@@ -3769,7 +3803,7 @@ var AnthropicMessagesLanguageModel = class {
++         ...userSuppliedBetas,
++         ...(_j = anthropicOptions == null ? void 0 : anthropicOptions.anthropicBeta) != null ? _j : []
++       ]),
++-      usesJsonResponseTool: jsonResponseTool != null,
+++      usesJsonResponseTool: !clewdr && jsonResponseTool != null,
++       toolNameMapping,
++       providerOptionsName,
++       usedCustomProviderKey
++@@ -3868,7 +3902,9 @@ var AnthropicMessagesLanguageModel = class {
++     const mcpToolCalls = {};
++     const serverToolCalls = {};
++     let isJsonResponseFromTool = false;
+++    const clewdr = this.config.provider === "clewdr";
++     for (const part of response.content) {
+++      if (clewdr && part.type.includes("tool")) continue;
++       switch (part.type) {
++         case "text": {
++           if (!usesJsonResponseTool) {
++@@ -4263,7 +4299,7 @@ var AnthropicMessagesLanguageModel = class {
++       finishReason: {
++         unified: mapAnthropicStopReason({
++           finishReason: response.stop_reason,
++-          isJsonResponseFromTool
+++          isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++         }),
++         raw: (_e = response.stop_reason) != null ? _e : void 0
++       },
++@@ -4377,6 +4413,7 @@ var AnthropicMessagesLanguageModel = class {
+      let isJsonResponseFromTool = false;
+      let blockType = void 0;
+      const generateId2 = this.generateId;
+@@ -667,14 +976,73 @@ index 9c37d988a10eb2f3c7b18094166eb11ccccbe152..5c0d962447754ccf4f4e610ed9bc4643
+      const transformedStream = response.pipeThrough(
+        new TransformStream({
+          start(controller) {
+-@@ -4388,6 +4428,10 @@ var AnthropicMessagesLanguageModel = class {
++@@ -4384,10 +4421,13 @@ var AnthropicMessagesLanguageModel = class {
++         },
++         transform(chunk, controller) {
++           var _a2, _b2, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
++-          if (options.includeRawChunks) {
+++          if (options.includeRawChunks || clewdr) {
+              controller.enqueue({ type: "raw", rawValue: chunk.rawValue });
+            }
+            if (!chunk.success) {
+-+            const rawType = typeof chunk.rawValue === "object" && chunk.rawValue != null ? chunk.rawValue.type : void 0;
+-+            if (clewdr && typeof rawType === "string" && !anthropicMessagesChunkTypes.has(rawType)) {
+++            if (clewdr) {
+ +              return;
+ +            }
+              controller.enqueue({ type: "error", error: chunk.error });
+              return;
+            }
++@@ -4399,6 +4439,7 @@ var AnthropicMessagesLanguageModel = class {
++             case "content_block_start": {
++               const part = value.content_block;
++               const contentBlockType = part.type;
+++              if (clewdr && contentBlockType.includes("tool")) return;
++               if (contentBlockType === "fallback") {
++                 return;
++               }
++@@ -4961,6 +5002,12 @@ var AnthropicMessagesLanguageModel = class {
++                   }
++                   return;
++                 }
+++                case "tool_use_block_update_delta": {
+++                  if (!clewdr) {
+++                    throw new Error(`Unsupported delta type: ${deltaType}`);
+++                  }
+++                  return;
+++                }
++                 case "citations_delta": {
++                   const citation = value.delta.citation;
++                   const source = createCitationSource(
++@@ -5000,7 +5047,7 @@ var AnthropicMessagesLanguageModel = class {
++                 finishReason = {
++                   unified: mapAnthropicStopReason({
++                     finishReason: value.message.stop_reason,
++-                    isJsonResponseFromTool
+++                    isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                   }),
++                   raw: value.message.stop_reason
++                 };
++@@ -5013,7 +5060,7 @@ var AnthropicMessagesLanguageModel = class {
++               if (value.message.content != null) {
++                 for (let contentIndex = 0; contentIndex < value.message.content.length; contentIndex++) {
++                   const part = value.message.content[contentIndex];
++-                  if (part.type === "tool_use") {
+++                  if (!clewdr && part.type === "tool_use") {
++                     const caller = part.caller;
++                     const callerInfo = caller ? {
++                       type: caller.type,
++@@ -5070,7 +5117,7 @@ var AnthropicMessagesLanguageModel = class {
++               finishReason = {
++                 unified: mapAnthropicStopReason({
++                   finishReason: value.delta.stop_reason,
++-                  isJsonResponseFromTool
+++                  isJsonResponseFromTool: clewdr || isJsonResponseFromTool
++                 }),
++                 raw: (_k = value.delta.stop_reason) != null ? _k : void 0
++               };
++@@ -5858,4 +5905,4 @@ export {
++   anthropicTools,
++   prepareTools
++ };
++-//# sourceMappingURL=index.mjs.map
++\ No newline at end of file
+++//# sourceMappingURL=index.mjs.map
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 5ba3abd3f..32c219a11 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -58,7 +58,7 @@ overrides:
+   '@ai-sdk/anthropic': 3.0.87
+ 
+ patchedDependencies:
+-  '@ai-sdk/anthropic': 68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f
++  '@ai-sdk/anthropic': 396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10
+   '@ai-sdk/deepseek@2.0.30': db4c4c1e60c18e61952ec4432de7a401adf44420bdbfe4bb6f726a8958642790
+   '@ai-sdk/google@3.0.64': 8486f495c82f8187fcc9dfe9b4c77b9f54026c273fab22ab7d4bbdc2e50d0312
+   '@ai-sdk/openai-compatible@2.0.62': d95c024a7f2a5a8c0a82336e78fe757a3a4ba86cf4f9af11bb26fb8b52fd7aee
+@@ -184,7 +184,7 @@ importers:
+         version: 4.0.96(zod@4.3.4)
+       '@ai-sdk/anthropic':
+         specifier: 3.0.87
+-        version: 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)
++        version: 3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -1250,7 +1250,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: 3.0.87
+-        version: 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.4.3)
++        version: 3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.4.3)
+       '@ai-sdk/google':
+         specifier: ^3.0.64
+         version: 3.0.64(patch_hash=8486f495c82f8187fcc9dfe9b4c77b9f54026c273fab22ab7d4bbdc2e50d0312)(zod@4.4.3)
+@@ -1281,7 +1281,7 @@ importers:
+     dependencies:
+       '@ai-sdk/anthropic':
+         specifier: 3.0.87
+-        version: 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)
++        version: 3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.3.4)
+       '@ai-sdk/azure':
+         specifier: ^3.0.54
+         version: 3.0.54(zod@4.3.4)
+@@ -13895,7 +13895,7 @@ snapshots:
+ 
+   '@ai-sdk/amazon-bedrock@4.0.96(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.3.4)
+       '@smithy/eventstream-codec': 4.2.14
+@@ -13903,13 +13903,13 @@ snapshots:
+       aws4fetch: 1.0.20
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)':
++  '@ai-sdk/anthropic@3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.3.4)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.11
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.3.4)
+       zod: 4.3.4
+ 
+-  '@ai-sdk/anthropic@3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.4.3)':
++  '@ai-sdk/anthropic@3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.4.3)':
+     dependencies:
+       '@ai-sdk/provider': 3.0.11
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.4.3)
+@@ -13976,7 +13976,7 @@ snapshots:
+ 
+   '@ai-sdk/google-vertex@4.0.112(zod@4.3.4)':
+     dependencies:
+-      '@ai-sdk/anthropic': 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)
++      '@ai-sdk/anthropic': 3.0.87(patch_hash=396824590d0cd6d9c7cbfd87488cf91188212fede31ea133e82a31e4544dfd10)(zod@4.3.4)
+       '@ai-sdk/google': 3.0.64(patch_hash=8486f495c82f8187fcc9dfe9b4c77b9f54026c273fab22ab7d4bbdc2e50d0312)(zod@4.3.4)
+       '@ai-sdk/openai-compatible': 2.0.41(zod@4.3.4)
+       '@ai-sdk/provider': 3.0.8
+diff --git a/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts b/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
+index 42bcfc323..86c9d4bac 100644
+--- a/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
++++ b/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
+@@ -1,6 +1,8 @@
+ import { createAnthropic } from '@ai-sdk/anthropic'
+ import type { LanguageModelV3CallOptions, LanguageModelV3StreamPart } from '@ai-sdk/provider'
+-import { describe, expect, it } from 'vitest'
++import { stepCountIs, streamText, tool } from 'ai'
++import { describe, expect, it, vi } from 'vitest'
++import * as z from 'zod'
+ 
+ import { createClewdrProvider } from '../../clewdrProvider'
+ import { captureWithFetch } from './captureRequest'
+@@ -29,6 +31,45 @@ const textPrompt: LanguageModelV3CallOptions = {
+   prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+ }
+ 
++const toolUseBlockUpdate = {
++  type: 'content_block_delta',
++  index: 2,
++  delta: {
++    type: 'tool_use_block_update_delta',
++    message: 'View the uploaded file',
++    display_content: { type: 'text', text: 'View the uploaded file' }
++  }
++}
++
++const unsupportedWebEvents = [
++  { type: 'conversation_ready' },
++  { type: 'message_limit', message_limit: { type: 'within_limit' } },
++  { type: 'content_block_delta', index: 0, delta: { type: 'thinking_cut_off_delta', cut_off: true } }
++]
++
++const remoteToolEvents = [
++  {
++    type: 'message_start',
++    message: { id: 'msg-1', model: 'claude-sonnet-4-6', role: 'assistant', usage: { input_tokens: 1 }, content: [] }
++  },
++  {
++    type: 'content_block_start',
++    index: 0,
++    content_block: { type: 'tool_use', id: 'toolu-1', name: 'view', input: {} }
++  },
++  { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"path":"a.txt"}' } },
++  toolUseBlockUpdate,
++  { type: 'content_block_stop', index: 0 },
++  {
++    type: 'message_delta',
++    delta: { stop_reason: 'tool_use', stop_sequence: null },
++    usage: { output_tokens: 1 }
++  },
++  { type: 'message_stop' }
++]
++
++const remoteToolStream = remoteToolEvents.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
++
+ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+   it('sends arbitrary files as base64 documents with their MIME type and filename', async () => {
+     const request = await captureWithFetch((fetch) =>
+@@ -78,10 +119,10 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+     })
+   })
+ 
+-  it('ignores unsupported proxy metadata events in an Anthropic stream', async () => {
++  it.each(unsupportedWebEvents)('preserves unsupported Clewdr events as raw chunks', async (event) => {
+     const fetch = (() =>
+       Promise.resolve(
+-        new Response('data: {"type":"conversation_ready"}\n\n', {
++        new Response(`data: ${JSON.stringify(event)}\n\n`, {
+           headers: { 'content-type': 'text/event-stream' },
+           status: 200
+         })
+@@ -89,14 +130,12 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+     const model = createClewdrProvider({ apiKey: 'test', baseURL: 'http://127.0.0.1:8484/v1', fetch }).languageModel(
+       'claude-sonnet-4-6'
+     )
+-
+-    const result = await model.doStream({
+-      prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }]
+-    } as LanguageModelV3CallOptions)
++    const result = await model.doStream(textPrompt)
+     const chunks: LanguageModelV3StreamPart[] = []
++
+     for await (const chunk of result.stream) chunks.push(chunk)
+ 
+-    expect(chunks.filter((chunk) => chunk.type === 'error')).toEqual([])
++    expect(chunks).toContainEqual({ type: 'raw', rawValue: event })
+   })
+ 
+   it('preserves Anthropic stream validation outside the Clewdr supplier type', async () => {
+@@ -116,6 +155,147 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+     ).rejects.toThrow('No matching discriminator')
+   })
+ 
++  it('parses Clewdr tool progress updates as raw stream chunks', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++    const model = createClewdrProvider({
++      apiKey: 'test',
++      baseURL: 'http://127.0.0.1:8484/v1',
++      fetch
++    }).languageModel('claude-sonnet-4-6')
++    const result = await model.doStream(textPrompt)
++    const chunks: LanguageModelV3StreamPart[] = []
++
++    for await (const chunk of result.stream) chunks.push(chunk)
++
++    expect(chunks).toContainEqual({ type: 'raw', rawValue: toolUseBlockUpdate })
++  })
++
++  it('emits each tool progress update once when raw chunks are requested', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++    const model = createClewdrProvider({
++      apiKey: 'test',
++      baseURL: 'http://127.0.0.1:8484/v1',
++      fetch
++    }).languageModel('claude-sonnet-4-6')
++    const result = await model.doStream({ ...textPrompt, includeRawChunks: true })
++    const chunks: LanguageModelV3StreamPart[] = []
++
++    for await (const chunk of result.stream) chunks.push(chunk)
++    const rawChunks = chunks.filter((chunk) => chunk.type === 'raw')
++
++    expect(rawChunks).toHaveLength(1)
++    expect(rawChunks[0]).toEqual({ type: 'raw', rawValue: toolUseBlockUpdate })
++  })
++
++  it('does not repeat the HTTP request after a Clewdr stream network error', async () => {
++    let requestCount = 0
++    const body = new ReadableStream<Uint8Array>({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`))
++        controller.error(new TypeError('network error'))
++      }
++    })
++    const fetch = (() => {
++      requestCount += 1
++      return Promise.resolve(
++        new Response(body, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )
++    }) as typeof globalThis.fetch
++    const result = streamText({
++      model: createClewdrProvider({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6'),
++      prompt: 'hello',
++      maxRetries: 0,
++      onError: () => {}
++    })
++
++    await result.consumeStream()
++
++    expect(requestCount).toBe(1)
++  })
++
++  it('does not execute Clewdr remote tools or start a second message request', async () => {
++    let requestCount = 0
++    const requestBodies: Record<string, unknown>[] = []
++    const execute = vi.fn(async () => 'local result')
++    const fetch = ((_url: RequestInfo | URL, init?: RequestInit) => {
++      requestCount += 1
++      requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
++      return Promise.resolve(
++        new Response(remoteToolStream, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )
++    }) as typeof globalThis.fetch
++    const result = streamText({
++      model: createClewdrProvider({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6'),
++      prompt: 'hello',
++      tools: {
++        view: tool({ inputSchema: z.object({ path: z.string() }), execute })
++      },
++      stopWhen: stepCountIs(2),
++      maxRetries: 0
++    })
++
++    await result.consumeStream()
++
++    expect(execute).not.toHaveBeenCalled()
++    expect(requestCount).toBe(1)
++    expect(requestBodies[0]).not.toHaveProperty('tools')
++    expect(requestBodies[0]).not.toHaveProperty('tool_choice')
++  })
++
++  it('preserves Clewdr remote tool activity as raw data without tool-call parts', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(remoteToolStream, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++    const result = await createClewdrProvider({ apiKey: 'test', fetch })
++      .languageModel('claude-sonnet-4-6')
++      .doStream(textPrompt)
++    const chunks: LanguageModelV3StreamPart[] = []
++
++    for await (const chunk of result.stream) chunks.push(chunk)
++
++    expect(chunks.filter((chunk) => chunk.type === 'raw').map((chunk) => chunk.rawValue)).toEqual(remoteToolEvents)
++    expect(chunks.filter((chunk) => chunk.type.startsWith('tool-'))).toEqual([])
++    expect(chunks).toContainEqual(
++      expect.objectContaining({ type: 'finish', finishReason: { unified: 'stop', raw: 'tool_use' } })
++    )
++  })
++
++  it('rejects Clewdr-only tool progress updates for the official Anthropic supplier', async () => {
++    const fetch = (() =>
++      Promise.resolve(
++        new Response(`data: ${JSON.stringify(toolUseBlockUpdate)}\n\n`, {
++          headers: { 'content-type': 'text/event-stream' },
++          status: 200
++        })
++      )) as typeof globalThis.fetch
++
++    await expect(
++      createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(textPrompt)
++    ).rejects.toThrow()
++  })
++
+   it('keeps unknown-model max token compatibility out of the official Anthropic supplier', async () => {
+     const clewdrRequest = await captureWithFetch((fetch) =>
+       createClewdrProvider({ apiKey: 'test', fetch }).languageModel('proxy-model').doStream(textPrompt)
+@@ -144,7 +324,7 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+     expect(anthropicRequest.body).not.toMatchObject({ thinking: { type: 'disabled' } })
+   })
+ 
+-  it('keeps tool schema sanitization out of the official Anthropic supplier', async () => {
++  it('omits local tools for Clewdr without changing the official Anthropic supplier', async () => {
+     const options: LanguageModelV3CallOptions = {
+       ...textPrompt,
+       tools: [
+@@ -163,7 +343,8 @@ describe('Clewdr Anthropic compatibility (patched @ai-sdk/anthropic)', () => {
+       createAnthropic({ apiKey: 'test', fetch }).languageModel('claude-sonnet-4-6').doStream(options)
+     )
+ 
+-    expect(JSON.stringify(clewdrRequest.body)).toContain('"additionalProperties":false')
++    expect(clewdrRequest.body).not.toMatchObject({ tools: expect.any(Array) })
++    expect(clewdrRequest.body).not.toHaveProperty('tool_choice')
+     expect(JSON.stringify(anthropicRequest.body)).toContain('"additionalProperties":true')
+   })
+ })
+diff --git a/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts b/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts
+new file mode 100644
+index 000000000..46bc978e9
+--- /dev/null
++++ b/src/main/ai/provider/custom/__tests__/clewdrProvider.test.ts
+@@ -0,0 +1,444 @@
++import { createHash } from 'node:crypto'
++
++import { describe, expect, it, vi } from 'vitest'
++
++import {
++  buildClewdrDownloadUrl,
++  createClewdrFetch,
++  createClewdrProvider,
++  normalizeClewdrEndpoint
++} from '../clewdrProvider'
++
++const clientId = 'client-123'
++const topicId = 'topic-456'
++const configuredEndpoint = 'HTTPS://CLEWDR.EXAMPLE:443/api/v1/?ignored=yes#fragment'
++const normalizedEndpoint = 'https://clewdr.example/api/v1'
++const sessionId = `cherry_topic_v1_${createHash('sha256')
++  .update(`clewdr-cherry-session-v1\0${clientId}\0${normalizedEndpoint}\0${topicId}`)
++  .digest('hex')}`
++
++const messagesUrl = `${normalizedEndpoint}/messages`
++
++function makeBody(filename = 'folder/project.zip', mediaType = 'application/zip') {
++  const source = { type: 'base64', media_type: mediaType, data: 'UEsDBA==' }
++  return {
++    model: 'claude-sonnet-4-6',
++    system: 'Keep this exact system prompt',
++    metadata: { trace_id: 'trace-1', user_id: 'must-be-replaced' },
++    tools: [{ name: 'view', input_schema: { type: 'object' } }],
++    tool_choice: { type: 'auto' },
++    messages: [
++      { role: 'user', content: [{ type: 'document', source, title: filename }] },
++      { role: 'assistant', content: [{ type: 'text', text: '{"literal":true}' }] },
++      { role: 'user', content: [{ type: 'document', source: { ...source }, title: filename }] }
++    ]
++  }
++}
++
++function okStream(): Response {
++  return new Response('data: {"type":"message_stop"}\n\n', {
++    status: 200,
++    headers: { 'content-type': 'text/event-stream' }
++  })
++}
++
++function textStream(text: string): Response {
++  const events = [
++    { type: 'message_start', message: { id: 'msg-1' } },
++    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
++    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
++    { type: 'content_block_stop', index: 0 },
++    { type: 'message_stop' }
++  ]
++  return new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''), {
++    status: 200,
++    headers: { 'content-type': 'text/event-stream' }
++  })
++}
++
++function makeFetch(fetch: typeof globalThis.fetch) {
++  return createClewdrFetch({
++    apiKey: 'secret-key',
++    clientId,
++    sessionId: topicId,
++    normalizedEndpoint,
++    fetch
++  })
++}
++
++describe('Clewdr request boundary', () => {
++  it('builds a URL-encoded unauthenticated file download link from the session', () => {
++    expect(buildClewdrDownloadUrl('HTTPS://CLEWDR.EXAMPLE:443/api/v1///', 'session id/1')).toBe(
++      'https://clewdr.example/api/v1/files?session_id=session%20id%2F1'
++    )
++    expect(buildClewdrDownloadUrl(undefined, 'topic-1')).toBe('/v1/files?session_id=topic-1')
++  })
++
++  it('appends Download Files only when assistant text contains an explicit output path', async () => {
++    const upstream = vi.fn(async () => textStream('Created output at /tmp/report final.txt')) as typeof globalThis.fetch
++    const response = await makeFetch(upstream)(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] })
++    })
++    const body = await response.text()
++
++    expect(body).toContain('[Download Files](https://clewdr.example/api/v1/files?session_id=' + sessionId + ')')
++    expect(body.indexOf('[Download Files]')).toBeLessThan(body.indexOf('"type":"content_block_stop"'))
++    expect(body.indexOf('"type":"content_block_stop"')).toBeLessThan(body.indexOf('"type":"message_stop"'))
++  })
++
++  it('leaves assistant streams without explicit output paths unchanged', async () => {
++    const upstream = vi.fn(async () => textStream('I can describe the requested file.')) as typeof globalThis.fetch
++    const response = await makeFetch(upstream)(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] })
++    })
++
++    await expect(response.text()).resolves.not.toContain('Download Files')
++  })
++
++  it('canonicalizes the endpoint used by the session digest', () => {
++    expect(normalizeClewdrEndpoint(configuredEndpoint)).toBe(normalizedEndpoint)
++    expect(normalizeClewdrEndpoint('http://localhost:8484/v1///')).toBe('http://localhost:8484/v1')
++    expect(normalizeClewdrEndpoint('https://example.test:8443/root/')).toBe('https://example.test:8443/root')
++  })
++
++  it('uploads a repeated historical source once and rewrites the full history', async () => {
++    const calls: Array<{ url: string; init?: RequestInit }> = []
++    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      calls.push({ url, init })
++      if (url.endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_abc',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200, headers: { 'content-type': 'application/json' } }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++    const fetch = makeFetch(upstream)
++    const signal = new AbortController().signal
++    const original = makeBody()
++
++    await fetch(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify(original),
++      headers: {
++        'content-type': 'application/json',
++        'content-length': '999',
++        'x-api-key': 'secret-key',
++        'x-trace': 'keep-me'
++      },
++      signal
++    })
++
++    expect(calls).toHaveLength(2)
++    expect(calls[0].url).toBe(`${normalizedEndpoint}/files`)
++    const uploadBody = calls[0].init?.body
++    expect(uploadBody).toBeInstanceOf(FormData)
++    if (!(uploadBody instanceof FormData)) throw new Error('expected multipart upload body')
++    const uploadedFile = uploadBody.get('file')
++    expect(uploadedFile).toBeInstanceOf(File)
++    expect((uploadedFile as File).name).toBe('project.zip')
++    expect((uploadedFile as File).type).toBe('application/zip')
++    expect(calls[0].init?.signal).toBe(signal)
++    const uploadHeaders = new Headers(calls[0].init?.headers)
++    expect(uploadHeaders.get('x-api-key')).toBe('secret-key')
++    expect(uploadHeaders.get('x-trace')).toBe('keep-me')
++    expect(uploadHeaders.has('content-type')).toBe(false)
++    expect(uploadHeaders.has('content-length')).toBe(false)
++
++    const sent = JSON.parse(String(calls[1].init?.body))
++    expect(sent).toEqual({
++      model: original.model,
++      system: original.system,
++      metadata: { trace_id: 'trace-1', user_id: sessionId },
++      messages: [
++        {
++          role: 'user',
++          content: [
++            { type: 'document', source: { type: 'file', file_id: 'file_clewdr_v1_abc' }, title: 'folder/project.zip' }
++          ]
++        },
++        { role: 'assistant', content: [{ type: 'text', text: '{"literal":true}' }] },
++        {
++          role: 'user',
++          content: [
++            { type: 'document', source: { type: 'file', file_id: 'file_clewdr_v1_abc' }, title: 'folder/project.zip' }
++          ]
++        }
++      ]
++    })
++    expect(sent).not.toHaveProperty('tools')
++    expect(sent).not.toHaveProperty('tool_choice')
++    expect(String(calls[1].init?.body)).not.toContain('UEsDBA==')
++    expect(calls[1].init?.signal).toBe(signal)
++    const messageHeaders = new Headers(calls[1].init?.headers)
++    expect(messageHeaders.get('content-type')).toBe('application/json')
++    expect(messageHeaders.get('x-trace')).toBe('keep-me')
++    expect(messageHeaders.has('content-length')).toBe(false)
++  })
++
++  it('reuses staged uploads across separate Clewdr provider constructions', async () => {
++    const calls: Array<{ url: string; init?: RequestInit }> = []
++    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
++      calls.push({ url: String(input), init })
++      if (String(input).endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_sdk',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++
++    const streamFile = () =>
++      createClewdrProvider({
++        apiKey: 'secret-key',
++        baseURL: normalizedEndpoint,
++        clientId,
++        sessionId: topicId,
++        normalizedEndpoint,
++        fetch: upstream
++      })
++        .languageModel('claude-sonnet-4-6')
++        .doStream({
++          prompt: [
++            {
++              role: 'user',
++              content: [
++                {
++                  type: 'file',
++                  data: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
++                  mediaType: 'application/zip',
++                  filename: 'project.zip'
++                }
++              ]
++            }
++          ]
++        })
++
++    await streamFile()
++    await streamFile()
++
++    expect(calls.map((call) => call.url)).toEqual([`${normalizedEndpoint}/files`, messagesUrl, messagesUrl])
++    const sent = JSON.parse(String(calls[1].init?.body))
++    expect(sent.metadata).toEqual({ user_id: sessionId })
++    expect(sent.messages[0].content[0].source).toEqual({ type: 'file', file_id: 'file_clewdr_v1_sdk' })
++  })
++
++  it('requires a persisted client ID when a Clewdr topic session is enabled', () => {
++    expect(() =>
++      createClewdrProvider({
++        apiKey: 'secret-key',
++        baseURL: normalizedEndpoint,
++        sessionId: topicId,
++        normalizedEndpoint,
++        fetch: vi.fn()
++      })
++    ).toThrow('persisted Cherry client ID')
++  })
++
++  it('deduplicates cached and concurrent uploads by bytes, filename, and MIME', async () => {
++    let uploads = 0
++    let releaseUpload: (() => void) | undefined
++    const uploadBlocked = new Promise<void>((resolve) => {
++      releaseUpload = resolve
++    })
++    const upstream = vi.fn(async (input: RequestInfo | URL) => {
++      if (String(input).endsWith('/files')) {
++        uploads += 1
++        await uploadBlocked
++        return new Response(
++          JSON.stringify({
++            id: `file_clewdr_v1_${uploads}`,
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++    const fetch = makeFetch(upstream)
++
++    const first = fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    const concurrent = fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    releaseUpload?.()
++    await Promise.all([first, concurrent])
++    await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++
++    expect(uploads).toBe(1)
++
++    await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody('renamed.zip')) })
++    await fetch(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify(makeBody('project.zip', 'application/octet-stream'))
++    })
++    expect(uploads).toBe(3)
++  })
++
++  it('surfaces 409 without reset', async () => {
++    const conflict = vi.fn(
++      async () =>
++        new Response(
++          JSON.stringify({ type: 'error', error: { type: 'conversation_reuse_failed', message: 'mismatch' } }),
++          {
++            status: 409
++          }
++        )
++    ) as typeof globalThis.fetch
++    const conflictFetch = makeFetch(conflict)
++    const conflictResponse = await conflictFetch(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] })
++    })
++    expect(conflictResponse.status).toBe(409)
++    expect(conflict).toHaveBeenCalledTimes(1)
++  })
++
++  it('resets then retries a nested conversation_expired 410 exactly once with staged JSON', async () => {
++    const calls: Array<{ url: string; body: string }> = []
++    let messageCount = 0
++    const expired = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
++      calls.push({ url: String(input), body: String(init?.body) })
++      if (String(input).endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_clewdr_v1_abc',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      if (String(input).endsWith('/sessions/reset')) return new Response('{}', { status: 200 })
++      messageCount += 1
++      if (messageCount === 2) return okStream()
++      return new Response(
++        JSON.stringify({ type: 'error', error: { type: 'conversation_expired', message: 'expired' } }),
++        { status: 410 }
++      )
++    }) as typeof globalThis.fetch
++    const expiredFetch = makeFetch(expired)
++    const expiredResponse = await expiredFetch(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify(makeBody())
++    })
++
++    expect(expiredResponse.status).toBe(200)
++    expect(calls.map((call) => call.url)).toEqual([
++      `${normalizedEndpoint}/files`,
++      messagesUrl,
++      `${normalizedEndpoint}/sessions/reset`,
++      messagesUrl
++    ])
++    expect(JSON.parse(calls[2].body)).toEqual({ session_id: sessionId })
++    expect(calls[1].body).not.toContain('UEsDBA==')
++    expect(calls[3].body).toBe(calls[1].body)
++  })
++
++  it('reuploads an expired staged file, updates the cache, and retries without resetting', async () => {
++    const calls: Array<{ url: string; body: string }> = []
++    let uploadCount = 0
++    let messageCount = 0
++    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
++      const url = String(input)
++      calls.push({ url, body: String(init?.body) })
++      if (url.endsWith('/files')) {
++        uploadCount += 1
++        return new Response(
++          JSON.stringify({
++            id: `file_clewdr_v1_upload_${uploadCount}`,
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      messageCount += 1
++      if (messageCount <= 2) {
++        return new Response(
++          JSON.stringify({ type: 'error', error: { type: 'file_expired', message: 'Staged file has expired' } }),
++          { status: 410 }
++        )
++      }
++      return textStream('/tmp/report.txt')
++    }) as typeof globalThis.fetch
++    const fetch = makeFetch(upstream)
++
++    const firstResponse = await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    const secondResponse = await fetch(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++
++    expect(firstResponse.status).toBe(410)
++    expect(secondResponse.status).toBe(200)
++    expect(uploadCount).toBe(2)
++    expect(messageCount).toBe(3)
++    expect(calls.some((call) => call.url.endsWith('/sessions/reset'))).toBe(false)
++    const messageBodies = calls.filter((call) => call.url === messagesUrl).map((call) => call.body)
++    expect(messageBodies).toHaveLength(3)
++    expect(messageBodies.every((body) => !body.includes('UEsDBA=='))).toBe(true)
++    expect(messageBodies[0]).toContain('file_clewdr_v1_upload_1')
++    expect(messageBodies[1]).toContain('file_clewdr_v1_upload_2')
++    expect(messageBodies[2]).toBe(messageBodies[1])
++    await expect(secondResponse.text()).resolves.toContain('[Download Files]')
++  })
++
++  it.each([
++    ['flat conversation_expired', { type: 'conversation_expired' }],
++    ['unknown nested error', { type: 'error', error: { type: 'other_gone', message: 'gone' } }]
++  ])('returns %s 410 envelopes unchanged without recovery', async (_name, envelope) => {
++    const upstream = vi.fn(
++      async () => new Response(JSON.stringify(envelope), { status: 410 })
++    ) as typeof globalThis.fetch
++    const response = await makeFetch(upstream)(messagesUrl, {
++      method: 'POST',
++      body: JSON.stringify({ model: 'claude-sonnet-4-6', messages: [] })
++    })
++
++    expect(response.status).toBe(410)
++    await expect(response.json()).resolves.toEqual(envelope)
++    expect(upstream).toHaveBeenCalledTimes(1)
++  })
++
++  it('rejects upload responses whose id is outside the staged file namespace', async () => {
++    const upstream = vi.fn(async (input: RequestInfo | URL) => {
++      if (String(input).endsWith('/files')) {
++        return new Response(
++          JSON.stringify({
++            id: 'file_other_abc',
++            type: 'file',
++            filename: 'project.zip',
++            mime_type: 'application/zip',
++            size_bytes: 4
++          }),
++          { status: 200 }
++        )
++      }
++      return okStream()
++    }) as typeof globalThis.fetch
++
++    await expect(
++      makeFetch(upstream)(messagesUrl, { method: 'POST', body: JSON.stringify(makeBody()) })
++    ).rejects.toThrow('invalid response')
++    expect(upstream).toHaveBeenCalledTimes(1)
++  })
++})
+diff --git a/src/main/ai/provider/custom/clewdrProvider.ts b/src/main/ai/provider/custom/clewdrProvider.ts
+index def3fecae..a355ba8c6 100644
+--- a/src/main/ai/provider/custom/clewdrProvider.ts
++++ b/src/main/ai/provider/custom/clewdrProvider.ts
+@@ -1,7 +1,427 @@
++import { createHash } from 'node:crypto'
++
+ import { type AnthropicProvider, type AnthropicProviderSettings, createAnthropic } from '@ai-sdk/anthropic'
+ 
+-export type ClewdrProviderSettings = AnthropicProviderSettings
++const CLEWDR_SESSION_PREFIX = 'cherry_topic_v1_'
++const CLEWDR_SESSION_DOMAIN = 'clewdr-cherry-session-v1'
++const MAX_UPLOAD_CACHE_ENTRIES = 1024
++
++interface UploadCacheEntry {
++  promise: Promise<string>
++  settled: boolean
++}
++
++// Agent construction may repeat between turns. Keep completed uploads across provider wrappers while retaining
++// in-flight entries until they settle so concurrent requests cannot duplicate a multipart upload.
++const uploadCache = new Map<string, UploadCacheEntry>()
++const fetchIdentities = new WeakMap<typeof globalThis.fetch, number>()
++let nextFetchIdentity = 1
++
++export interface ClewdrProviderSettings extends AnthropicProviderSettings {
++  clientId?: string
++  sessionId?: string
++  normalizedEndpoint?: string
++}
++
++interface ClewdrFetchSettings {
++  apiKey?: string
++  clientId: string
++  sessionId: string
++  normalizedEndpoint: string
++  fetch: typeof globalThis.fetch
++}
++
++interface StagedFileResponse {
++  id: string
++  type: 'file'
++  filename: string
++  mime_type: string
++  size_bytes: number
++}
++
++type JsonObject = Record<string, unknown>
++
++interface PreparedMessageBody {
++  body: string
++  uploadCacheKeys: Set<string>
++}
++
++interface StagedFileReference {
++  cacheKey: string
++  fileId: string
++}
++
++export function normalizeClewdrEndpoint(endpoint: string): string {
++  const url = new URL(endpoint)
++  url.search = ''
++  url.hash = ''
++  url.pathname = url.pathname.replace(/\/+$/, '')
++  return url.toString().replace(/\/$/, '')
++}
++
++export function buildClewdrDownloadUrl(endpoint: string | undefined, sessionId: string): string {
++  const normalizedEndpoint = endpoint?.trim() ? normalizeClewdrEndpoint(endpoint) : '/v1'
++  return `${normalizedEndpoint}/files?session_id=${encodeURIComponent(sessionId)}`
++}
+ 
+ export function createClewdrProvider(options: ClewdrProviderSettings = {}): AnthropicProvider {
+-  return createAnthropic({ ...options, name: 'clewdr' })
++  const { clientId, sessionId, normalizedEndpoint, fetch: customFetch, ...anthropicOptions } = options
++  let providerFetch = customFetch
++
++  if (sessionId !== undefined) {
++    if (!clientId) throw new Error('Clewdr session preparation requires a persisted Cherry client ID')
++    if (!sessionId) throw new Error('Clewdr session preparation requires a topic ID')
++
++    const endpoint = normalizeClewdrEndpoint(normalizedEndpoint ?? anthropicOptions.baseURL ?? '')
++    providerFetch = createClewdrFetch({
++      ...anthropicOptions,
++      clientId,
++      sessionId,
++      normalizedEndpoint: endpoint,
++      fetch: customFetch ?? globalThis.fetch
++    })
++  }
++
++  return createAnthropic({ ...anthropicOptions, fetch: providerFetch, name: 'clewdr' })
++}
++
++export function createClewdrFetch(settings: ClewdrFetchSettings): typeof globalThis.fetch {
++  const endpoint = normalizeClewdrEndpoint(settings.normalizedEndpoint)
++  const wireSessionId = createSessionId(settings.clientId, endpoint, settings.sessionId)
++  const principalDigest = sha256(settings.apiKey ?? '')
++  const fetchIdentity = getFetchIdentity(settings.fetch)
++
++  return async (input, init) => {
++    if (!isMessagesRequest(input) || typeof init?.body !== 'string') return settings.fetch(input, init)
++
++    const requestContext: RewriteContext = {
++      endpoint,
++      fetchIdentity,
++      principalDigest,
++      wireSessionId,
++      headers: mergeHeaders(input, init.headers),
++      signal: init.signal,
++      fetch: settings.fetch
++    }
++    const prepared = await prepareMessageBody(init.body, requestContext)
++    if (!prepared) return settings.fetch(input, init)
++
++    const messageHeaders = mergeHeaders(input, init.headers)
++    messageHeaders.delete('content-length')
++    const rewrittenInit: RequestInit = { ...init, body: prepared.body, headers: messageHeaders }
++    const response = await settings.fetch(input, rewrittenInit)
++    if (response.status !== 410) return appendDownloadLink(response, endpoint, wireSessionId)
++    const errorType = await readClewdrErrorType(response)
++
++    if (errorType === 'file_expired') {
++      if (prepared.uploadCacheKeys.size === 0) return response
++      prepared.uploadCacheKeys.forEach((cacheKey) => uploadCache.delete(cacheKey))
++      const restaged = await prepareMessageBody(init.body, requestContext)
++      if (!restaged) return response
++      if (response.body) await response.body.cancel().catch(() => undefined)
++      return appendDownloadLink(
++        await settings.fetch(input, { ...rewrittenInit, body: restaged.body }),
++        endpoint,
++        wireSessionId
++      )
++    }
++
++    if (errorType !== 'conversation_expired') return response
++    if (response.body) await response.body.cancel().catch(() => undefined)
++
++    const resetHeaders = new Headers(messageHeaders)
++    resetHeaders.set('content-type', 'application/json')
++    resetHeaders.delete('content-length')
++    const resetResponse = await settings.fetch(`${endpoint}/sessions/reset`, {
++      method: 'POST',
++      body: JSON.stringify({ session_id: wireSessionId }),
++      headers: resetHeaders,
++      signal: init.signal
++    })
++    if (!resetResponse.ok) return resetResponse
++
++    return appendDownloadLink(await settings.fetch(input, rewrittenInit), endpoint, wireSessionId)
++  }
++}
++
++const OUTPUT_PATH_PATTERN =
++  /(?:^|[\s(`"'])((?:\/(?:[^\s/`"']+\/)*[^\s/`"']+)|(?:\.{1,2}[\\/][^\s`"']+)|(?:[A-Za-z]:[\\/][^\s`"']+))/m
++
++function appendDownloadLink(response: Response, endpoint: string, sessionId: string): Response {
++  if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
++    return response
++  }
++
++  const encoder = new TextEncoder()
++  const decoder = new TextDecoder()
++  const downloadUrl = buildClewdrDownloadUrl(endpoint, sessionId)
++  let buffered = ''
++  let assistantText = ''
++  let textBlockIndex = 0
++  let linkAppended = false
++  let textBlockStopped = false
++
++  const appendIfNeeded = (controller: TransformStreamDefaultController<Uint8Array>): void => {
++    if (linkAppended || !OUTPUT_PATH_PATTERN.test(assistantText)) return
++    linkAppended = true
++    const text = `\n\n[Download Files](${downloadUrl})`
++    controller.enqueue(
++      encoder.encode(
++        `data: ${JSON.stringify({
++          type: 'content_block_delta',
++          index: textBlockIndex,
++          delta: { type: 'text_delta', text }
++        })}\n\n`
++      )
++    )
++  }
++
++  const inspectEvent = (event: string, controller: TransformStreamDefaultController<Uint8Array>): void => {
++    const data = event
++      .split(/\r?\n/)
++      .filter((line) => line.startsWith('data:'))
++      .map((line) => line.slice(5).trimStart())
++      .join('\n')
++    if (!data || data === '[DONE]') return
++    let parsed: unknown
++    try {
++      parsed = JSON.parse(data)
++    } catch {
++      return
++    }
++    if (!isJsonObject(parsed) || typeof parsed.type !== 'string') return
++    if (parsed.type === 'content_block_start' && isJsonObject(parsed.content_block)) {
++      if (parsed.content_block.type === 'text' && typeof parsed.index === 'number') textBlockIndex = parsed.index
++    }
++    if (parsed.type === 'content_block_delta' && isJsonObject(parsed.delta)) {
++      if (parsed.delta.type === 'text_delta' && typeof parsed.delta.text === 'string')
++        assistantText += parsed.delta.text
++    }
++    if (parsed.type === 'content_block_stop' && parsed.index === textBlockIndex) {
++      textBlockStopped = true
++      appendIfNeeded(controller)
++    }
++    if (parsed.type === 'message_stop' && !textBlockStopped) appendIfNeeded(controller)
++  }
++
++  const stream = new TransformStream<Uint8Array, Uint8Array>({
++    transform(chunk, controller) {
++      buffered += decoder.decode(chunk, { stream: true })
++      let boundary = buffered.indexOf('\n\n')
++      while (boundary !== -1) {
++        const event = buffered.slice(0, boundary + 2)
++        buffered = buffered.slice(boundary + 2)
++        inspectEvent(event, controller)
++        controller.enqueue(encoder.encode(event))
++        boundary = buffered.indexOf('\n\n')
++      }
++    },
++    flush(controller) {
++      buffered += decoder.decode()
++      if (buffered) {
++        inspectEvent(buffered, controller)
++        controller.enqueue(encoder.encode(buffered))
++      }
++      if (!textBlockStopped) appendIfNeeded(controller)
++    }
++  })
++
++  return new Response(response.body.pipeThrough(stream), response)
++}
++
++interface RewriteContext {
++  endpoint: string
++  fetchIdentity: number
++  principalDigest: string
++  wireSessionId: string
++  headers: Headers
++  signal: AbortSignal | null | undefined
++  fetch: typeof globalThis.fetch
++}
++
++async function prepareMessageBody(body: string, context: RewriteContext): Promise<PreparedMessageBody | undefined> {
++  const parsed: unknown = JSON.parse(body)
++  if (!isJsonObject(parsed)) return undefined
++
++  const uploadCacheKeys = await rewriteFileSources(parsed, context)
++  parsed.metadata = {
++    ...(isJsonObject(parsed.metadata) ? parsed.metadata : {}),
++    user_id: context.wireSessionId
++  }
++  delete parsed.tools
++  delete parsed.tool_choice
++
++  return { body: JSON.stringify(parsed), uploadCacheKeys }
++}
++
++async function rewriteFileSources(body: JsonObject, context: RewriteContext): Promise<Set<string>> {
++  const uploadCacheKeys = new Set<string>()
++  if (!Array.isArray(body.messages)) return uploadCacheKeys
++
++  const rewrites: Promise<void>[] = []
++  for (const message of body.messages) {
++    if (!isJsonObject(message) || !Array.isArray(message.content)) continue
++    for (const part of message.content) {
++      if (!isJsonObject(part) || !isJsonObject(part.source)) continue
++      const source = part.source
++      if (source.type !== 'base64' || typeof source.data !== 'string' || typeof source.media_type !== 'string') {
++        continue
++      }
++
++      const filename = normalizeFilename(typeof part.title === 'string' ? part.title : 'file')
++      rewrites.push(
++        stageFile(source.data, filename, source.media_type, context).then((staged) => {
++          part.source = { type: 'file', file_id: staged.fileId }
++          uploadCacheKeys.add(staged.cacheKey)
++        })
++      )
++    }
++  }
++  await Promise.all(rewrites)
++  return uploadCacheKeys
++}
++
++async function stageFile(
++  data: string,
++  filename: string,
++  mediaType: string,
++  context: RewriteContext
++): Promise<StagedFileReference> {
++  const bytes = Buffer.from(data, 'base64')
++  const cacheKey = JSON.stringify([
++    context.fetchIdentity,
++    context.endpoint,
++    context.principalDigest,
++    context.wireSessionId,
++    sha256(bytes),
++    filename,
++    mediaType
++  ])
++  const cached = uploadCache.get(cacheKey)
++  if (cached) {
++    uploadCache.delete(cacheKey)
++    uploadCache.set(cacheKey, cached)
++    return { cacheKey, fileId: await cached.promise }
++  }
++
++  reserveUploadCacheEntry()
++  const entry: UploadCacheEntry = {
++    settled: false,
++    promise: uploadFile(bytes, filename, mediaType, context).then(
++      (fileId) => {
++        entry.settled = true
++        return fileId
++      },
++      (error: unknown) => {
++        if (uploadCache.get(cacheKey) === entry) uploadCache.delete(cacheKey)
++        throw error
++      }
++    )
++  }
++  uploadCache.set(cacheKey, entry)
++  return { cacheKey, fileId: await entry.promise }
++}
++
++async function uploadFile(
++  bytes: Uint8Array,
++  filename: string,
++  mediaType: string,
++  context: RewriteContext
++): Promise<string> {
++  const form = new FormData()
++  const blobBytes = new Uint8Array(bytes.byteLength)
++  blobBytes.set(bytes)
++  form.append('file', new Blob([blobBytes.buffer], { type: mediaType }), filename)
++  const headers = new Headers(context.headers)
++  headers.delete('content-type')
++  headers.delete('content-length')
++
++  const response = await context.fetch(`${context.endpoint}/files`, {
++    method: 'POST',
++    body: form,
++    headers,
++    signal: context.signal
++  })
++  if (!response.ok) {
++    const detail = await response.text()
++    throw new Error(`Clewdr file upload failed with HTTP ${response.status}: ${detail}`)
++  }
++
++  const payload: unknown = await response.json()
++  if (!isStagedFileResponse(payload)) throw new Error('Clewdr file upload returned an invalid response')
++  return payload.id
++}
++
++function createSessionId(clientId: string, endpoint: string, topicId: string): string {
++  return `${CLEWDR_SESSION_PREFIX}${sha256(`${CLEWDR_SESSION_DOMAIN}\0${clientId}\0${endpoint}\0${topicId}`)}`
++}
++
++function normalizeFilename(filename: string): string {
++  const basename = filename.replaceAll('\\', '/').split('/').filter(Boolean).at(-1) ?? 'file'
++  const printable = [...basename].filter((character) => {
++    const codePoint = character.codePointAt(0) ?? 0
++    return codePoint > 0x1f && codePoint !== 0x7f
++  })
++  return printable.join('').trim() || 'file'
++}
++
++function mergeHeaders(input: RequestInfo | URL, headers: HeadersInit | undefined): Headers {
++  const merged = input instanceof Request ? new Headers(input.headers) : new Headers()
++  new Headers(headers).forEach((value, key) => merged.set(key, value))
++  return merged
++}
++
++function getFetchIdentity(fetch: typeof globalThis.fetch): number {
++  const existing = fetchIdentities.get(fetch)
++  if (existing !== undefined) return existing
++  const identity = nextFetchIdentity++
++  fetchIdentities.set(fetch, identity)
++  return identity
++}
++
++function reserveUploadCacheEntry(): void {
++  if (uploadCache.size < MAX_UPLOAD_CACHE_ENTRIES) return
++  const settled = uploadCache.entries().find(([, entry]) => entry.settled)
++  if (!settled) throw new Error('Clewdr file upload cache is busy')
++  uploadCache.delete(settled[0])
++}
++
++async function readClewdrErrorType(response: Response): Promise<string | undefined> {
++  try {
++    const payload: unknown = await response.clone().json()
++    if (!isJsonObject(payload) || payload.type !== 'error' || !isJsonObject(payload.error)) return undefined
++    if (typeof payload.error.type !== 'string' || typeof payload.error.message !== 'string') return undefined
++    return payload.error.type
++  } catch {
++    return undefined
++  }
++}
++
++function isMessagesRequest(input: RequestInfo | URL): boolean {
++  const url = input instanceof Request ? input.url : String(input)
++  try {
++    return new URL(url).pathname.replace(/\/+$/, '').endsWith('/messages')
++  } catch {
++    return false
++  }
++}
++
++function isJsonObject(value: unknown): value is JsonObject {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function isStagedFileResponse(value: unknown): value is StagedFileResponse {
++  return (
++    isJsonObject(value) &&
++    typeof value.id === 'string' &&
++    value.id.startsWith('file_clewdr_v1_') &&
++    value.type === 'file' &&
++    typeof value.filename === 'string' &&
++    typeof value.mime_type === 'string' &&
++    typeof value.size_bytes === 'number'
++  )
++}
++
++function sha256(value: string | Uint8Array): string {
++  return createHash('sha256').update(value).digest('hex')
+ }
+diff --git a/src/main/ai/runtime/aiSdk/params/__tests__/buildAgentParams.test.ts b/src/main/ai/runtime/aiSdk/params/__tests__/buildAgentParams.test.ts
+index 2bb149538..29a45f983 100644
+--- a/src/main/ai/runtime/aiSdk/params/__tests__/buildAgentParams.test.ts
++++ b/src/main/ai/runtime/aiSdk/params/__tests__/buildAgentParams.test.ts
+@@ -18,6 +18,8 @@ vi.mock('../../../../provider/config', () => ({
+   providerToAiSdkConfig: providerToAiSdkConfigMock
+ }))
+ 
++vi.mock('@main/utils/systemInfo', () => ({ getClientId: () => 'client-123' }))
++
+ vi.mock('@application', () => ({
+   application: {
+     getPath: (_namespace: string, filename: string) =>
+@@ -285,3 +287,69 @@ describe('resolveTools knowledge-base wiring', () => {
+     expect(tools?.[KB_GATED_TOOL_NAME]).toBeUndefined()
+   })
+ })
++
++describe('Clewdr agent boundary', () => {
++  it('passes session context while removing local tools and tool choice before model creation', async () => {
++    providerToAiSdkConfigMock.mockResolvedValue({
++      providerId: 'clewdr',
++      providerSettings: { apiKey: 'secret', baseURL: 'HTTPS://CLEWDR.EXAMPLE:443/v1/?query=ignored' },
++      modelId: 'claude-sonnet-4-6'
++    })
++    const localExecute = vi.fn()
++
++    const result = await buildAgentParams({
++      request: {
++        chatId: 'topic-456',
++        callOverrides: {
++          tools: { view: { description: 'local view', inputSchema: {}, execute: localExecute } as never },
++          toolChoice: { type: 'tool', toolName: 'view' }
++        }
++      },
++      signal: undefined,
++      provider: makeProvider({ id: 'clewdr' }),
++      model: makeModel({
++        id: 'clewdr::claude-sonnet-4-6',
++        capabilities: [MODEL_CAPABILITY.FUNCTION_CALL]
++      })
++    })
++
++    expect(result.tools).toBeUndefined()
++    expect(result.options.toolChoice).toBeUndefined()
++    expect(result.system ?? '').not.toContain('local view')
++    expect(result.sdkConfig.providerSettings).toMatchObject({
++      clientId: 'client-123',
++      sessionId: 'topic-456',
++      normalizedEndpoint: 'https://clewdr.example/v1'
++    })
++    expect(localExecute).not.toHaveBeenCalled()
++  })
++
++  it('keeps local tools and tool choice for the official Anthropic provider', async () => {
++    providerToAiSdkConfigMock.mockResolvedValue({
++      providerId: 'anthropic',
++      providerSettings: { apiKey: 'secret', baseURL: 'https://api.anthropic.com/v1' },
++      modelId: 'claude-sonnet-4-6'
++    })
++    const localExecute = vi.fn()
++
++    const result = await buildAgentParams({
++      request: {
++        chatId: 'topic-456',
++        callOverrides: {
++          tools: { view: { description: 'local view', inputSchema: {}, execute: localExecute } as never },
++          toolChoice: { type: 'tool', toolName: 'view' }
++        }
++      },
++      signal: undefined,
++      provider: makeProvider({ id: 'anthropic' }),
++      model: makeModel({
++        id: 'anthropic::claude-sonnet-4-6',
++        capabilities: [MODEL_CAPABILITY.FUNCTION_CALL]
++      })
++    })
++
++    expect(result.tools).toHaveProperty('view')
++    expect(result.options.toolChoice).toEqual({ type: 'tool', toolName: 'view' })
++    expect(result.sdkConfig.providerSettings).not.toHaveProperty('sessionId')
++  })
++})
+diff --git a/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts b/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts
+index b50c362de..416c427a0 100644
+--- a/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts
++++ b/src/main/ai/runtime/aiSdk/params/buildAgentParams.ts
+@@ -4,6 +4,7 @@ import type { AiPlugin } from '@cherrystudio/ai-core'
+ import { projectRuntimeReasoning, providerRegistryService } from '@data/services/ProviderRegistryService'
+ import { loggerService } from '@logger'
+ import { MAX_TOOL_CALLS, MIN_TOOL_CALLS } from '@main/ai/constants'
++import { getClientId } from '@main/utils/systemInfo'
+ import { type Assistant, DEFAULT_ASSISTANT_SETTINGS } from '@shared/data/types/assistant'
+ import { ENDPOINT_TYPE, type Model } from '@shared/data/types/model'
+ import type { Provider } from '@shared/data/types/provider'
+@@ -14,6 +15,7 @@ import { collectFileAttachments } from '../../../messages/attachmentRouting'
+ import type { FileAttachmentRef } from '../../../messages/attachmentTypes'
+ import { createHttpTraceFetch } from '../../../observability'
+ import { providerToAiSdkConfig } from '../../../provider/config'
++import { type ClewdrProviderSettings, normalizeClewdrEndpoint } from '../../../provider/custom/clewdrProvider'
+ import { resolveAiSdkProviderId, resolveEffectiveEndpoint } from '../../../provider/endpoint'
+ import type { RequestContext } from '../../../tools/adapters/aiSdk/context'
+ import { applyDeferExposition } from '../../../tools/adapters/aiSdk/exposition/applyDeferExposition'
+@@ -76,14 +78,25 @@ export async function buildAgentParams(input: BuildAgentParamsInput): Promise<Bu
+   const { request, signal, provider, model, assistant, extraFeatures } = input
+ 
+   const sdkConfig = await resolveSdkConfig(provider, model, request.apiKeyOverride)
++  const isClewdr = sdkConfig.providerId === 'clewdr'
++  if (isClewdr && request.chatId) {
++    const settings = sdkConfig.providerSettings as ClewdrProviderSettings
++    const clientId = getClientId()
++    if (!clientId) throw new Error('Clewdr session preparation requires a persisted Cherry client ID')
++    if (!settings.baseURL) throw new Error('Clewdr session preparation requires a configured endpoint')
++    settings.clientId = clientId
++    settings.sessionId = request.chatId
++    settings.normalizedEndpoint = normalizeClewdrEndpoint(settings.baseURL)
++  }
+   applyHttpTrace(sdkConfig, request.chatId, model)
+   const fileAttachments = collectFileAttachments(request.messages)
+   const hasFileAttachments = fileAttachments.length > 0
+   const knowledgeBaseIds = resolveKnowledgeBaseIds(assistant, request.knowledgeBaseIds)
+-  const { tools, deferredEntries, mcpToolIds } = canModelConsumeTools(model)
+-    ? await resolveTools(request, assistant, model, hasFileAttachments, knowledgeBaseIds)
+-    : { tools: undefined, deferredEntries: [] as ToolEntry[], mcpToolIds: new Set<string>() }
+-  const capabilities = assistant ? resolveCapabilities(model, provider, assistant) : undefined
++  const { tools, deferredEntries, mcpToolIds } =
++    !isClewdr && canModelConsumeTools(model)
++      ? await resolveTools(request, assistant, model, hasFileAttachments, knowledgeBaseIds)
++      : { tools: undefined, deferredEntries: [] as ToolEntry[], mcpToolIds: new Set<string>() }
++  const capabilities = !isClewdr && assistant ? resolveCapabilities(model, provider, assistant) : undefined
+ 
+   const { endpointType } = resolveEffectiveEndpoint(provider, model)
+   const aiSdkProviderId = resolveAiSdkProviderId(provider, endpointType)
+@@ -136,6 +149,7 @@ export async function buildAgentParams(input: BuildAgentParamsInput): Promise<Bu
+ 
+   const system = await assembleSystemPrompt({ assistant, model, tools, deferredEntries })
+   const options = buildAgentOptions(scope, contributions.stopConditions)
++  if (isClewdr) delete options.toolChoice
+ 
+   return {
+     sdkConfig,
+diff --git a/src/renderer/components/chat/messages/tools/__tests__/chooseTool.test.tsx b/src/renderer/components/chat/messages/tools/__tests__/chooseTool.test.tsx
+index 83107ab88..e206c94a3 100644
+--- a/src/renderer/components/chat/messages/tools/__tests__/chooseTool.test.tsx
++++ b/src/renderer/components/chat/messages/tools/__tests__/chooseTool.test.tsx
+@@ -65,4 +65,8 @@ describe('chooseTool', () => {
+     expect(response?.tool.type).toBe('builtin')
+     expect(testIdOf(chooseTool(response as NormalToolResponse))).toBe('image-card')
+   })
++
++  it('routes unknown provider tools through the generic agent card', () => {
++    expect(testIdOf(chooseTool(resp('view', 'provider')))).toBe('agent-card')
++  })
+ })
+diff --git a/src/renderer/components/chat/messages/tools/chooseTool.tsx b/src/renderer/components/chat/messages/tools/chooseTool.tsx
+index c2b339843..f2727e8d4 100644
+--- a/src/renderer/components/chat/messages/tools/chooseTool.tsx
++++ b/src/renderer/components/chat/messages/tools/chooseTool.tsx
+@@ -5,23 +5,14 @@ import { AgentExecutionTimeline } from './agent'
+ import { MessageKnowledgeSearchToolTitle } from './knowledge/MessageKnowledgeSearch'
+ import MessageMetaTool, { isMetaToolName } from './meta/MessageMetaTool'
+ import { MessageGenerateImageToolTitle } from './painting/MessageGenerateImage'
+-import { AgentToolsType, isAskUserQuestionToolName } from './shared/agentToolTypes'
++import { isAskUserQuestionToolName } from './shared/agentToolTypes'
+ import { MessageWebSearchToolTitle } from './webSearch/MessageWebSearch'
+ 
+ const builtinToolsPrefix = 'builtin_'
+-const agentMcpToolsPrefix = 'mcp__'
+ const agentGenerateImageToolName = `mcp__cherry-tools__${GENERATE_IMAGE_TOOL_NAME}`
+-const agentTools = new Set<string>(Object.values(AgentToolsType))
+ /** cherry-tools that carry short wire names (no `mcp__` prefix) and lack a bespoke card. */
+ const CHERRY_AGENT_TOOL_NAMES = new Set(['web_fetch', 'kb_list', 'memory'])
+ 
+-const isAgentTool = (toolName: string) => {
+-  if (agentTools.has(toolName) || toolName.startsWith(agentMcpToolsPrefix)) {
+-    return true
+-  }
+-  return false
+-}
+-
+ export function chooseTool(toolResponse: NormalToolResponse): React.ReactNode | null {
+   const toolName = toolResponse.tool.name
+   const toolType = toolResponse.tool.type
+@@ -63,8 +54,5 @@ export function chooseTool(toolResponse: NormalToolResponse): React.ReactNode |
+     }
+   }
+ 
+-  if (isAgentTool(toolName)) {
+-    return <AgentExecutionTimeline toolResponse={toolResponse} />
+-  }
+-  return null
++  return <AgentExecutionTimeline toolResponse={toolResponse} />
+ }
+-- 
+2.43.0
+

@@ -1,7 +1,7 @@
-From 37659b13dfafda87b3c7ad796a0aca1b2a622bf2 Mon Sep 17 00:00:00 2001
+From f4001f87d8152d41b39407b6ed3a27199fc21713 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 18:26:50 +0000
-Subject: [PATCH] fix(tool-display): render unknown provider tools
+Subject: [PATCH 06/10] fix(tool-display): render unknown provider tools
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---

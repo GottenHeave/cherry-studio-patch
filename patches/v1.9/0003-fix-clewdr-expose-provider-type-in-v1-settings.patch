@@ -1,7 +1,7 @@
-From 2570f250377ddd97dee5cb239492f1bd9e4a9d23 Mon Sep 17 00:00:00 2001
+From ab56371677abac9e02af767288f7689bec8ffb71 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 11:51:59 +0000
-Subject: [PATCH] fix(clewdr): expose provider type in v1 settings
+Subject: [PATCH 03/10] fix(clewdr): expose provider type in v1 settings
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---

@@ -1,7 +1,7 @@
-From e30fe48188edb166e198a950bf8135f37a2440fe Mon Sep 17 00:00:00 2001
+From b77d24391bb935b1be2eb2edae2a9b160fdc4424 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 05:14:16 +0000
-Subject: [PATCH 2/2] feat(clewdr): add v1 provider compatibility
+Subject: [PATCH 02/10] feat(clewdr): add v1 provider compatibility
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---
@@ -24,7 +24,7 @@ Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
  create mode 100644 src/renderer/src/config/models/__tests__/clewdr.test.ts
 
 diff --git a/patches/@ai-sdk__anthropic.patch b/patches/@ai-sdk__anthropic.patch
-index 76a703e8b..d4b29b004 100644
+index 76a703e..d4b29b0 100644
 --- a/patches/@ai-sdk__anthropic.patch
 +++ b/patches/@ai-sdk__anthropic.patch
 @@ -1,80 +1,524 @@
@@ -569,7 +569,7 @@ index 76a703e8b..d4b29b004 100644
 +             return;
 +           }
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index 31fdb35a9..73aaab6b6 100644
+index 31fdb35..73aaab6 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -35,7 +35,7 @@ overrides:
@@ -644,7 +644,7 @@ index 31fdb35a9..73aaab6b6 100644
        '@ai-sdk/provider': 3.0.8
 diff --git a/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts b/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
 new file mode 100644
-index 000000000..046b4d914
+index 0000000..046b4d9
 --- /dev/null
 +++ b/src/renderer/src/aiCore/prepareParams/__tests__/fileProcessor.clewdr.test.ts
 @@ -0,0 +1,75 @@
@@ -724,7 +724,7 @@ index 000000000..046b4d914
 +  })
 +})
 diff --git a/src/renderer/src/aiCore/prepareParams/fileProcessor.ts b/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
-index 62f9fc2a9..13416d0d5 100644
+index 62f9fc2..13416d0 100644
 --- a/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
 +++ b/src/renderer/src/aiCore/prepareParams/fileProcessor.ts
 @@ -203,6 +203,17 @@ export async function convertFileBlockToFilePart(fileBlock: FileMessageBlock, mo
@@ -747,7 +747,7 @@ index 62f9fc2a9..13416d0d5 100644
        // 检查文件大小限制
 diff --git a/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
 new file mode 100644
-index 000000000..589c2235c
+index 0000000..589c223
 --- /dev/null
 +++ b/src/renderer/src/aiCore/provider/__tests__/clewdrCompatibility.test.ts
 @@ -0,0 +1,150 @@
@@ -902,7 +902,7 @@ index 000000000..589c2235c
 +  })
 +})
 diff --git a/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts b/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
-index 2f1a6f007..134670a23 100644
+index 2f1a6f0..134670a 100644
 --- a/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
 +++ b/src/renderer/src/aiCore/provider/__tests__/integratedRegistry.test.ts
 @@ -118,6 +118,12 @@ describe('Integrated Provider Registry', () => {
@@ -920,7 +920,7 @@ index 2f1a6f007..134670a23 100644
        const result = getAiSdkProviderId(unknownProvider)
 diff --git a/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
 new file mode 100644
-index 000000000..78b21b6f1
+index 0000000..78b21b6
 --- /dev/null
 +++ b/src/renderer/src/aiCore/provider/custom/clewdr-provider.ts
 @@ -0,0 +1,7 @@
@@ -932,7 +932,7 @@ index 000000000..78b21b6f1
 +  return createAnthropic({ ...options, name: 'clewdr' })
 +}
 diff --git a/src/renderer/src/aiCore/provider/extensions/index.ts b/src/renderer/src/aiCore/provider/extensions/index.ts
-index 76de2c0b1..c42a44b22 100644
+index 76de2c0..c42a44b 100644
 --- a/src/renderer/src/aiCore/provider/extensions/index.ts
 +++ b/src/renderer/src/aiCore/provider/extensions/index.ts
 @@ -5,6 +5,7 @@
@@ -969,7 +969,7 @@ index 76de2c0b1..c42a44b22 100644
    GitHubCopilotExtension,
 diff --git a/src/renderer/src/config/models/__tests__/clewdr.test.ts b/src/renderer/src/config/models/__tests__/clewdr.test.ts
 new file mode 100644
-index 000000000..f1c58db3c
+index 0000000..f1c58db
 --- /dev/null
 +++ b/src/renderer/src/config/models/__tests__/clewdr.test.ts
 @@ -0,0 +1,15 @@
@@ -989,7 +989,7 @@ index 000000000..f1c58db3c
 +  })
 +})
 diff --git a/src/renderer/src/config/models/default.ts b/src/renderer/src/config/models/default.ts
-index ce7fd0d14..a77ff8b9f 100644
+index ce7fd0d..a77ff8b 100644
 --- a/src/renderer/src/config/models/default.ts
 +++ b/src/renderer/src/config/models/default.ts
 @@ -7,6 +7,49 @@ export const qwenModel: Model = {
@@ -1051,7 +1051,7 @@ index ce7fd0d14..a77ff8b9f 100644
      {
        id: 'deepseek-v4-flash',
 diff --git a/src/renderer/src/config/providers.ts b/src/renderer/src/config/providers.ts
-index 7a0d90e57..6bdd710c8 100644
+index 7a0d90e..6bdd710 100644
 --- a/src/renderer/src/config/providers.ts
 +++ b/src/renderer/src/config/providers.ts
 @@ -389,6 +389,16 @@ export const SYSTEM_PROVIDERS_CONFIG: Record<SystemProviderId, SystemProvider> =
@@ -1096,7 +1096,7 @@ index 7a0d90e57..6bdd710c8 100644
      api: {
        url: 'https://api.x.ai'
 diff --git a/src/renderer/src/types/provider.ts b/src/renderer/src/types/provider.ts
-index 1cfee6538..0bc15c66e 100644
+index 1cfee65..0bc15c6 100644
 --- a/src/renderer/src/types/provider.ts
 +++ b/src/renderer/src/types/provider.ts
 @@ -8,6 +8,7 @@ export const ProviderTypeSchema = z.enum([

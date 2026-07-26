@@ -21,6 +21,10 @@ The downstream behavior changes currently maintained are:
   Anthropic Messages adapter supports arbitrary file documents and normalizes
   Claude Web stream events. Clewdr compatibility must not change the official
   Anthropic supplier behavior. The v1.9 defaults mirror Clewdr's model list.
+- Clewdr assistant responses that explicitly name an output path append a
+  `Download Files` link to the session file listing. The link uses the
+  configured provider base URL, falls back to `/v1/files`, and carries no
+  authentication headers.
 
 Keep that behavior limited to chat attachments. Do not relax restrictions for
 knowledge bases, avatars, plugins, or any other upload flow. Do not add

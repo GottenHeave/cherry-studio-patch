@@ -1,74 +1,13 @@
-From e5edfb512eeaab3eab1a7164d3f3d40d09af48c3 Mon Sep 17 00:00:00 2001
+From e6d8b1f797822bd33b2eb83e35a6e0a22c0fa2bb Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Tue, 14 Jul 2026 13:57:51 +0000
-Subject: [PATCH 2/2] fix(clewdr): add isolated Anthropic compatibility
+Subject: [PATCH 2/3] fix(clewdr): add isolated Anthropic compatibility
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
----
- .../provider-registry/data/providers.json     |  24 +-
- .../provider-registry/src/providers/clewdr.ts |  23 +
- .../provider-registry/src/providers/index.ts  |   2 +
- patches/@ai-sdk__anthropic.patch              | 622 +++++++++++++++++-
- pnpm-lock.yaml                                |  16 +-
- .../__tests__/attachmentRouting.test.ts       |  28 +-
- src/main/ai/messages/attachmentRouting.ts     |   2 +-
- .../ai/provider/__tests__/endpoint.test.ts    |   9 +
- .../clewdr.anthropicCompatibility.test.ts     | 169 +++++
- src/main/ai/provider/custom/clewdrProvider.ts |   7 +
- src/main/ai/provider/extensions.ts            |   9 +
- .../__tests__/nativeFileSupport.test.ts       |  41 ++
- .../runtime/aiSdk/params/nativeFileSupport.ts |  30 +-
- .../claudeCode/ClaudeCodeRuntimeDriver.ts     |   2 +-
- .../__tests__/ClaudeCodeRuntimeDriver.test.ts |   2 +-
- .../paste/__tests__/useFileDragDrop.test.ts   |  15 +-
- 16 files changed, 955 insertions(+), 46 deletions(-)
- create mode 100644 packages/provider-registry/src/providers/clewdr.ts
- create mode 100644 src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
- create mode 100644 src/main/ai/provider/custom/clewdrProvider.ts
 
-diff --git a/packages/provider-registry/data/providers.json b/packages/provider-registry/data/providers.json
-index 0dd0a11..28cd505 100644
---- a/packages/provider-registry/data/providers.json
-+++ b/packages/provider-registry/data/providers.json
-@@ -474,6 +474,28 @@
-       },
-       "name": "LM Studio"
-     },
-+    {
-+      "defaultChatEndpoint": "anthropic-messages",
-+      "description": "ClewdR - AI model provider",
-+      "endpointConfigs": {
-+        "anthropic-messages": {
-+          "adapterFamily": "clewdr",
-+          "baseUrl": "http://127.0.0.1:8484/v1"
-+        },
-+        "openai-chat-completions": {
-+          "adapterFamily": "openai-compatible",
-+          "baseUrl": "http://127.0.0.1:8484/v1"
-+        }
-+      },
-+      "id": "clewdr",
-+      "metadata": {
-+        "website": {
-+          "docs": "https://github.com/Xerxes-2/clewdr/wiki",
-+          "official": "https://github.com/Xerxes-2/clewdr"
-+        }
-+      },
-+      "name": "ClewdR"
-+    },
-     {
-       "defaultChatEndpoint": "anthropic-messages",
-       "description": "Anthropic - AI model provider",
-@@ -1459,5 +1481,5 @@
-       "presetProviderId": "minimax"
-     }
-   ],
--  "version": "6dd76cf1b8f4d058"
-+  "version": "fa4f02386893136d"
- }
 diff --git a/packages/provider-registry/src/providers/clewdr.ts b/packages/provider-registry/src/providers/clewdr.ts
 new file mode 100644
-index 0000000..ca3580f
+index 000000000..ca3580fe3
 --- /dev/null
 +++ b/packages/provider-registry/src/providers/clewdr.ts
 @@ -0,0 +1,23 @@
@@ -96,7 +35,7 @@ index 0000000..ca3580f
 +  }
 +})
 diff --git a/packages/provider-registry/src/providers/index.ts b/packages/provider-registry/src/providers/index.ts
-index 4c2bf9e..166d4fa 100644
+index 0721f1a94..e3a8de12e 100644
 --- a/packages/provider-registry/src/providers/index.ts
 +++ b/packages/provider-registry/src/providers/index.ts
 @@ -11,6 +11,7 @@ import p_burncloud from './burncloud'
@@ -107,7 +46,7 @@ index 4c2bf9e..166d4fa 100644
  import p_copilot from './copilot'
  import p_dashscope from './dashscope'
  import p_deepseek from './deepseek'
-@@ -89,6 +90,7 @@ export const PROVIDERS: Provider[] = [
+@@ -84,6 +85,7 @@ export const PROVIDERS: Provider[] = [
    p_ollama,
    p_new_api,
    p_lmstudio,
@@ -116,7 +55,7 @@ index 4c2bf9e..166d4fa 100644
    p_claude_code,
    p_openai_codex,
 diff --git a/patches/@ai-sdk__anthropic.patch b/patches/@ai-sdk__anthropic.patch
-index 7ef75f0..0f646d8 100644
+index 7ef75f086..0f646d895 100644
 --- a/patches/@ai-sdk__anthropic.patch
 +++ b/patches/@ai-sdk__anthropic.patch
 @@ -1,98 +1,680 @@
@@ -821,7 +760,7 @@ index 7ef75f0..0f646d8 100644
 +             return;
 +           }
 diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
-index aae7fe3..d9b15e8 100644
+index 79276c91c..5ba3abd3f 100644
 --- a/pnpm-lock.yaml
 +++ b/pnpm-lock.yaml
 @@ -58,7 +58,7 @@ overrides:
@@ -832,8 +771,8 @@ index aae7fe3..d9b15e8 100644
 +  '@ai-sdk/anthropic': 68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f
    '@ai-sdk/deepseek@2.0.30': db4c4c1e60c18e61952ec4432de7a401adf44420bdbfe4bb6f726a8958642790
    '@ai-sdk/google@3.0.64': 8486f495c82f8187fcc9dfe9b4c77b9f54026c273fab22ab7d4bbdc2e50d0312
-   '@ai-sdk/openai-compatible@2.0.37': 363512fcab5b030cf6a7f6327f8ef038eb76dabf71ffb6689e4fe7f9c461780a
-@@ -192,7 +192,7 @@ importers:
+   '@ai-sdk/openai-compatible@2.0.62': d95c024a7f2a5a8c0a82336e78fe757a3a4ba86cf4f9af11bb26fb8b52fd7aee
+@@ -184,7 +184,7 @@ importers:
          version: 4.0.96(zod@4.3.4)
        '@ai-sdk/anthropic':
          specifier: 3.0.87
@@ -842,7 +781,7 @@ index aae7fe3..d9b15e8 100644
        '@ai-sdk/azure':
          specifier: ^3.0.54
          version: 3.0.54(zod@4.3.4)
-@@ -1234,7 +1234,7 @@ importers:
+@@ -1250,7 +1250,7 @@ importers:
      dependencies:
        '@ai-sdk/anthropic':
          specifier: 3.0.87
@@ -851,7 +790,7 @@ index aae7fe3..d9b15e8 100644
        '@ai-sdk/google':
          specifier: ^3.0.64
          version: 3.0.64(patch_hash=8486f495c82f8187fcc9dfe9b4c77b9f54026c273fab22ab7d4bbdc2e50d0312)(zod@4.4.3)
-@@ -1265,7 +1265,7 @@ importers:
+@@ -1281,7 +1281,7 @@ importers:
      dependencies:
        '@ai-sdk/anthropic':
          specifier: 3.0.87
@@ -860,16 +799,16 @@ index aae7fe3..d9b15e8 100644
        '@ai-sdk/azure':
          specifier: ^3.0.54
          version: 3.0.54(zod@4.3.4)
-@@ -14050,7 +14050,7 @@ snapshots:
+@@ -13895,7 +13895,7 @@ snapshots:
  
    '@ai-sdk/amazon-bedrock@4.0.96(zod@4.3.4)':
      dependencies:
 -      '@ai-sdk/anthropic': 3.0.87(patch_hash=9dde59c089aeae80977fd751f494cf0c1c25d04af2aaa6c527d5d1628011e8fc)(zod@4.3.4)
 +      '@ai-sdk/anthropic': 3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)
        '@ai-sdk/provider': 3.0.8
-       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.3.4)
        '@smithy/eventstream-codec': 4.2.14
-@@ -14058,13 +14058,13 @@ snapshots:
+@@ -13903,13 +13903,13 @@ snapshots:
        aws4fetch: 1.0.20
        zod: 4.3.4
  
@@ -877,15 +816,15 @@ index aae7fe3..d9b15e8 100644
 +  '@ai-sdk/anthropic@3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.3.4)':
      dependencies:
        '@ai-sdk/provider': 3.0.11
-       '@ai-sdk/provider-utils': 4.0.23(zod@4.3.4)
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.3.4)
        zod: 4.3.4
  
 -  '@ai-sdk/anthropic@3.0.87(patch_hash=9dde59c089aeae80977fd751f494cf0c1c25d04af2aaa6c527d5d1628011e8fc)(zod@4.4.3)':
 +  '@ai-sdk/anthropic@3.0.87(patch_hash=68571071a0d1eecabee2abc994ccbd01fa2c57b48d55bb1f651ce12e3a99cb4f)(zod@4.4.3)':
      dependencies:
        '@ai-sdk/provider': 3.0.11
-       '@ai-sdk/provider-utils': 4.0.23(zod@4.4.3)
-@@ -14125,7 +14125,7 @@ snapshots:
+       '@ai-sdk/provider-utils': 4.0.40(zod@4.4.3)
+@@ -13976,7 +13976,7 @@ snapshots:
  
    '@ai-sdk/google-vertex@4.0.112(zod@4.3.4)':
      dependencies:
@@ -895,7 +834,7 @@ index aae7fe3..d9b15e8 100644
        '@ai-sdk/openai-compatible': 2.0.41(zod@4.3.4)
        '@ai-sdk/provider': 3.0.8
 diff --git a/src/main/ai/messages/__tests__/attachmentRouting.test.ts b/src/main/ai/messages/__tests__/attachmentRouting.test.ts
-index 4c3f7f8..283f5a2 100644
+index 2f160bb10..7d3fe1aee 100644
 --- a/src/main/ai/messages/__tests__/attachmentRouting.test.ts
 +++ b/src/main/ai/messages/__tests__/attachmentRouting.test.ts
 @@ -28,8 +28,9 @@ vi.mock('../attachmentTextExtraction', () => ({
@@ -928,7 +867,7 @@ index 4c3f7f8..283f5a2 100644
    it('keeps a native image inline (no extraction)', async () => {
      getByIdMock.mockResolvedValueOnce({ ext: 'png' })
      resolveMock.mockImplementation(async (p) => p)
-@@ -115,6 +127,18 @@ describe('prepareChatMessages — routing', () => {
+@@ -131,6 +143,18 @@ describe('prepareChatMessages — routing', () => {
      expect(extractMock).not.toHaveBeenCalled()
    })
  
@@ -948,7 +887,7 @@ index 4c3f7f8..283f5a2 100644
      getByIdMock.mockResolvedValueOnce({ ext: 'png' })
      resolveMock.mockResolvedValueOnce(null)
 diff --git a/src/main/ai/messages/attachmentRouting.ts b/src/main/ai/messages/attachmentRouting.ts
-index 82bff2c..bb165b7 100644
+index 6d7afeba3..0387c600f 100644
 --- a/src/main/ai/messages/attachmentRouting.ts
 +++ b/src/main/ai/messages/attachmentRouting.ts
 @@ -86,7 +86,7 @@ function isNative(ext: string, fileType: FileType, ns: NativeFileSupport): boole
@@ -961,10 +900,10 @@ index 82bff2c..bb165b7 100644
  
  /** Extract a non-native attachment's model-visible text by file type. `handle`
 diff --git a/src/main/ai/provider/__tests__/endpoint.test.ts b/src/main/ai/provider/__tests__/endpoint.test.ts
-index 717d72c..b350785 100644
+index e4e1933e4..efd37b6f0 100644
 --- a/src/main/ai/provider/__tests__/endpoint.test.ts
 +++ b/src/main/ai/provider/__tests__/endpoint.test.ts
-@@ -143,6 +143,15 @@ describe('resolveAiSdkProviderId', () => {
+@@ -161,6 +161,15 @@ describe('resolveAiSdkProviderId', () => {
        ).toBe('anthropic')
      })
  
@@ -982,7 +921,7 @@ index 717d72c..b350785 100644
          resolveAiSdkProviderId(
 diff --git a/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts b/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
 new file mode 100644
-index 0000000..42bcfc3
+index 000000000..42bcfc323
 --- /dev/null
 +++ b/src/main/ai/provider/custom/__tests__/boundary/clewdr.anthropicCompatibility.test.ts
 @@ -0,0 +1,169 @@
@@ -1157,7 +1096,7 @@ index 0000000..42bcfc3
 +})
 diff --git a/src/main/ai/provider/custom/clewdrProvider.ts b/src/main/ai/provider/custom/clewdrProvider.ts
 new file mode 100644
-index 0000000..def3fec
+index 000000000..def3fecae
 --- /dev/null
 +++ b/src/main/ai/provider/custom/clewdrProvider.ts
 @@ -0,0 +1,7 @@
@@ -1169,7 +1108,7 @@ index 0000000..def3fec
 +  return createAnthropic({ ...options, name: 'clewdr' })
 +}
 diff --git a/src/main/ai/provider/extensions.ts b/src/main/ai/provider/extensions.ts
-index f4ac59a..a643d8f 100644
+index 028b98016..dd574fca5 100644
 --- a/src/main/ai/provider/extensions.ts
 +++ b/src/main/ai/provider/extensions.ts
 @@ -5,6 +5,7 @@ import {
@@ -1177,10 +1116,10 @@ index f4ac59a..a643d8f 100644
    createAmazonBedrock
  } from '@ai-sdk/amazon-bedrock'
 +import type { AnthropicProvider } from '@ai-sdk/anthropic'
+ import { type ByteDanceProviderSettings, createByteDance } from '@ai-sdk/bytedance'
  import { type CerebrasProviderSettings, createCerebras } from '@ai-sdk/cerebras'
  import type { GatewayProviderSettings } from '@ai-sdk/gateway'
- import { createVertexAnthropic, type GoogleVertexAnthropicProvider } from '@ai-sdk/google-vertex/anthropic/edge'
-@@ -26,6 +27,7 @@ import type { OllamaProviderSettings } from 'ollama-ai-provider-v2'
+@@ -32,6 +33,7 @@ import type { OllamaProviderSettings } from 'ollama-ai-provider-v2'
  import { createVoyage, type VoyageProviderSettings } from 'voyage-ai-provider'
  
  import { type AihubmixProviderSettings, createAihubmix } from './custom/aihubmix/aihubmixProvider'
@@ -1188,7 +1127,7 @@ index f4ac59a..a643d8f 100644
  import { createDashScopeProvider, type DashScopeProviderSettings } from './custom/dashscope/dashscopeProvider'
  import { createDmxapiProvider, type DmxapiProviderSettings } from './custom/dmxapi/dmxapiProvider'
  import { createGatewayWithImageModel } from './custom/gateway/gatewayProvider'
-@@ -156,6 +158,12 @@ export const OllamaExtension = ProviderExtension.create({
+@@ -180,6 +182,12 @@ export const OllamaExtension = ProviderExtension.create({
    create: (options?: OllamaProviderSettings) => createOllamaWithImageModel(options)
  } as const satisfies ProviderExtensionConfig<OllamaProviderSettings, ProviderV3, 'ollama'>)
  
@@ -1201,7 +1140,7 @@ index f4ac59a..a643d8f 100644
  /** AiHubMix — multi-backend gateway (claude→anthropic, gemini→google, gpt→openai-responses). */
  export const AiHubMixExtension = ProviderExtension.create({
    name: 'aihubmix',
-@@ -282,6 +290,7 @@ export const extensions = [
+@@ -328,6 +336,7 @@ export const extensions = [
    GatewayExtension,
    CerebrasExtension,
    OllamaExtension,
@@ -1210,7 +1149,7 @@ index f4ac59a..a643d8f 100644
    NewApiExtension,
    PpioExtension,
 diff --git a/src/main/ai/runtime/aiSdk/params/__tests__/nativeFileSupport.test.ts b/src/main/ai/runtime/aiSdk/params/__tests__/nativeFileSupport.test.ts
-index d8a0d2f..c7bbadb 100644
+index d8a0d2ffb..c7bbadbea 100644
 --- a/src/main/ai/runtime/aiSdk/params/__tests__/nativeFileSupport.test.ts
 +++ b/src/main/ai/runtime/aiSdk/params/__tests__/nativeFileSupport.test.ts
 @@ -23,6 +23,47 @@ describe('resolveNativeFileSupport', () => {
@@ -1262,7 +1201,7 @@ index d8a0d2f..c7bbadb 100644
  
    it('no native PDF on an openai-compatible aggregator', () => {
 diff --git a/src/main/ai/runtime/aiSdk/params/nativeFileSupport.ts b/src/main/ai/runtime/aiSdk/params/nativeFileSupport.ts
-index c5746ea..f12e988 100644
+index c5746ea14..f12e9886f 100644
 --- a/src/main/ai/runtime/aiSdk/params/nativeFileSupport.ts
 +++ b/src/main/ai/runtime/aiSdk/params/nativeFileSupport.ts
 @@ -31,6 +31,8 @@ export interface NativeFileSupport {
@@ -1339,23 +1278,23 @@ index c5746ea..f12e988 100644
    }
  }
 diff --git a/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts b/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
-index 27030de..d856447 100644
+index 655aa909c..4779aab28 100644
 --- a/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
 +++ b/src/main/ai/runtime/claudeCode/ClaudeCodeRuntimeDriver.ts
-@@ -571,7 +571,7 @@ async function materializeUserContent(
+@@ -689,7 +689,7 @@ async function materializeUserContent(
      const userMessage = { id: message.id, role: 'user', parts: firstPartyParts } as CherryUIMessage
      const [prepared] = await prepareChatMessages([userMessage], {
        attachments: collectFileAttachments([userMessage]),
--      nativeSupport: { image: true, pdf: false, audio: false, video: false },
-+      nativeSupport: { image: true, pdf: false, audio: false, video: false, file: false },
+-      nativeSupport: { image: supportsImages, pdf: false, audio: false, video: false },
++      nativeSupport: { image: supportsImages, pdf: false, audio: false, video: false, file: false },
        isToolCapable: false
      })
      routedParts = prepared.parts
 diff --git a/src/main/ai/runtime/claudeCode/__tests__/ClaudeCodeRuntimeDriver.test.ts b/src/main/ai/runtime/claudeCode/__tests__/ClaudeCodeRuntimeDriver.test.ts
-index e5d7aef..bc5362a 100644
+index 8ea3154db..478a55ce8 100644
 --- a/src/main/ai/runtime/claudeCode/__tests__/ClaudeCodeRuntimeDriver.test.ts
 +++ b/src/main/ai/runtime/claudeCode/__tests__/ClaudeCodeRuntimeDriver.test.ts
-@@ -472,7 +472,7 @@ describe('ClaudeCodeRuntimeDriver', () => {
+@@ -515,7 +515,7 @@ describe('ClaudeCodeRuntimeDriver', () => {
      })
      expect(mocks.prepareChatMessages).toHaveBeenCalledWith([expect.objectContaining({ id: 'user-1', role: 'user' })], {
        attachments: [{ fileEntryId: 'entry-1', handle: 'spec.pdf', displayName: 'spec.pdf' }],
@@ -1365,7 +1304,7 @@ index e5d7aef..bc5362a 100644
      })
      expect(mocks.materializeNativeFilePart).not.toHaveBeenCalled()
 diff --git a/src/renderer/components/composer/paste/__tests__/useFileDragDrop.test.ts b/src/renderer/components/composer/paste/__tests__/useFileDragDrop.test.ts
-index e2b95dc..b04eae3 100644
+index e2b95dc16..b04eae315 100644
 --- a/src/renderer/components/composer/paste/__tests__/useFileDragDrop.test.ts
 +++ b/src/renderer/components/composer/paste/__tests__/useFileDragDrop.test.ts
 @@ -305,13 +305,17 @@ describe('useFileDragDrop', () => {

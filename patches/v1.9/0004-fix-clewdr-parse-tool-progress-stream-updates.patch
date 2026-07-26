@@ -1,7 +1,7 @@
-From afe7a1e35c270d3c009553ee5c570d9e1c2c6a2e Mon Sep 17 00:00:00 2001
+From ca3bf00a7993644dab51f38678f1ecad77dbabb3 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Wed, 15 Jul 2026 13:26:06 +0000
-Subject: [PATCH] fix(clewdr): parse tool progress stream updates
+Subject: [PATCH 04/10] fix(clewdr): parse tool progress stream updates
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---

@@ -1,7 +1,7 @@
-From 090a07b41161b34523c479998def116bbf1b0f44 Mon Sep 17 00:00:00 2001
+From 825a0121bc5c3c78361c6aabf0ff8419ba0fb0d5 Mon Sep 17 00:00:00 2001
 From: cherry-studio-patch automation <actions@users.noreply.github.com>
 Date: Thu, 16 Jul 2026 13:28:56 +0000
-Subject: [PATCH 8/8] feat(clewdr): stage files for topic sessions
+Subject: [PATCH 08/10] feat(clewdr): stage files for topic sessions
 
 Signed-off-by: cherry-studio-patch automation <actions@users.noreply.github.com>
 ---
